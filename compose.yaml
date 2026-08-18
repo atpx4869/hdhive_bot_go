@@ -1,0 +1,11 @@
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: config.env
+    volumes:
+      - hdhive-data:/data
+    restart: unless-stopped
+volumes:
+  hdhive-data:

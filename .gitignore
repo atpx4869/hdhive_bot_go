@@ -1,0 +1,5 @@
+config.env
+*.db
+*.db-*
+telegram_users.json
+telegram_p115.json

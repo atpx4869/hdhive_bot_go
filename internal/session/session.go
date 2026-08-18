@@ -208,6 +208,19 @@ func (m *Manager) SetUnlockStatus(userID int64, key string, status UnlockStatus)
 	return nil
 }
 
+func (m *Manager) ResetUnlock(userID int64, key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[userID]
+	if !ok || s.Unlocks == nil {
+		return
+	}
+	delete(s.Unlocks, key)
+	now := m.now()
+	s.UpdatedAt, s.ExpiresAt = now, now.Add(m.ttl)
+	m.sessions[userID] = s
+}
+
 func (m *Manager) UnlockStatus(userID int64, key string) UnlockStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()

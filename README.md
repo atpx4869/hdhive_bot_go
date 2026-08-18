@@ -60,6 +60,15 @@ go vet ./...
 go build ./...
 ```
 
+## 115 配置与异常恢复
+
+- `/set115` 使用两步交互：先发送包含 `UID`、`CID`、`SEID` 的完整 Cookie（Bot 会尝试删除该消息），再发送目标目录 cid；`0` 表示根目录。
+- `/my115` 只显示启用状态和“根目录/已配置目录”，不会显示 Cookie 或掩码。
+- 普通用户 `/unset115` 需按钮确认并采用 `enabled=false` 软删除；管理员配置不能通过 Bot 停用。
+- `/cancel` 可退出正在进行的 115 配置。
+- 无法确认的 HDHive 解锁错误统一提示 `unknown，请联系管理员` 并禁止重复付费。管理员人工核验后可执行 `/unlockreset <user_id> <resource_id>`，该命令只解除 `unknown`，不会解除仍可能活跃的 `in_flight`、自动重新解锁或清除成功记录。
+- 115 转存按 `user_id + resource_id` 合并并发请求，并缓存完成结果，防止重复调用。
+
 ## 数据与安全
 
 - SQLite 和迁移源文件放在 `/data` 持久卷。

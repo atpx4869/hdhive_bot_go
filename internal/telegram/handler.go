@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/atpx4869/hdhive_bot_go/internal/session"
 	"github.com/atpx4869/hdhive_bot_go/internal/store"
@@ -22,7 +23,11 @@ type UserService interface {
 type AccountService interface {
 	SetP115Config(context.Context, int64, store.P115Config) error
 	GetP115Config(context.Context, int64) (store.P115Config, error)
-	DeleteP115Config(context.Context, int64) error
+	DisableP115Config(context.Context, int64) error
+}
+
+type UnlockAdminService interface {
+	ResetUnlockRecord(context.Context, int64, string) error
 }
 
 type LogService interface {
@@ -81,6 +86,7 @@ type Outgoing struct {
 type Messenger interface {
 	Send(context.Context, int64, Outgoing) error
 	AnswerCallback(context.Context, string, string) error
+	DeleteMessage(context.Context, int64, int) error
 }
 
 type Handler struct {
@@ -114,17 +120,35 @@ func (h *Handler) authorized(ctx context.Context, id int64) bool {
 }
 
 func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text string) error {
+	return h.HandleMessage(ctx, userID, chatID, 0, text)
+}
+
+func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messageID int, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
 	}
 	cmd, arg := splitCommand(text)
+	if s, ok := h.sessions.Get(userID); ok && s.Kind == "set115_cookie" && chatID != userID {
+		deleted := messageID > 0 && h.messenger.DeleteMessage(ctx, chatID, messageID) == nil
+		warning := ""
+		if !deleted {
+			warning = " 原消息无法自动删除，请立即手动删除。"
+		}
+		return h.send(ctx, chatID, "检测到正在配置 115，但 Cookie 只能在 Bot 私聊发送。"+warning)
+	}
+	if cmd == "/set115" && arg != "" {
+		if messageID > 0 {
+			_ = h.messenger.DeleteMessage(ctx, chatID, messageID)
+		}
+		return h.send(ctx, chatID, "请不要把 Cookie 放在命令后。请在 Bot 私聊重新发送 /set115，再按提示单独发送 Cookie；若原消息仍可见请立即手动删除。")
+	}
 	switch cmd {
 	case "/start":
 		return h.send(ctx, chatID, HelpText(h.isAdmin(userID)))
 	case "/myid":
 		return h.send(ctx, chatID, fmt.Sprintf("你的 Telegram User ID：%d", userID))
-	case "/authorize", "/revoke", "/users", "/note", "/logs":
+	case "/authorize", "/revoke", "/users", "/note", "/logs", "/unlockreset":
 		if !h.isAdmin(userID) {
 			return h.send(ctx, chatID, "无权限：仅管理员可使用此命令。")
 		}
@@ -138,35 +162,59 @@ func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text str
 		if chatID != userID {
 			return h.send(ctx, chatID, "为保护 Cookie，/set115 只能在 Bot 私聊中使用。")
 		}
-		if arg == "" {
-			_ = h.sessions.Set(userID, "set115", nil)
-			return h.send(ctx, chatID, "请发送 115 Cookie。发送后将加密保存；可用 /unset115 删除。")
-		}
-		return h.set115(ctx, userID, chatID, arg)
+		_ = h.sessions.Set(userID, "set115_cookie", nil)
+		return h.send(ctx, chatID, "请发送完整的 115 Cookie（应包含 UID、CID、SEID）。Bot 会尝试立即删除该消息。")
+	case "/cancel":
+		h.sessions.ClearInteraction(userID)
+		return h.send(ctx, chatID, "已取消当前操作。")
 	case "/unset115":
+		if h.isAdmin(userID) {
+			return h.send(ctx, chatID, "管理员不能通过 Bot 删除自己的 115 配置。")
+		}
 		if h.services.Accounts == nil {
 			return h.send(ctx, chatID, "115 服务未配置。")
 		}
-		err := h.services.Accounts.DeleteP115Config(ctx, userID)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
+		cfg, err := h.services.Accounts.GetP115Config(ctx, userID)
+		if err != nil || !cfg.Enabled {
+			return h.send(ctx, chatID, "你当前没有启用的 115 配置。")
+		}
+		yes, err := h.sessions.BindCallback(userID, "unset115_confirm", cfg.Cookie)
+		if err != nil {
 			return err
 		}
-		return h.send(ctx, chatID, "115 配置已删除。")
+		no, err := h.sessions.BindCallback(userID, "unset115_cancel", "")
+		if err != nil {
+			return err
+		}
+		return h.messenger.Send(ctx, chatID, Outgoing{Text: "确认停用你的 115 配置吗？服务端会保留加密记录。", Buttons: [][]Button{{{Text: "确认停用", CallbackData: yes}, {Text: "取消", CallbackData: no}}}})
 	case "/my115":
 		if h.services.Accounts == nil {
 			return h.send(ctx, chatID, "115 服务未配置。")
 		}
 		cfg, err := h.services.Accounts.GetP115Config(ctx, userID)
 		if err != nil {
-			return h.send(ctx, chatID, "尚未配置 115 Cookie。")
+			return h.send(ctx, chatID, "尚未配置 115。发送 /set115 开始配置。")
 		}
-		return h.send(ctx, chatID, "115 已配置："+MaskSecret(cfg.Cookie))
+		status := "已启用"
+		if !cfg.Enabled {
+			status = "已停用"
+		}
+		target := "根目录"
+		if strings.TrimSpace(cfg.TargetCID) != "" && cfg.TargetCID != "0" {
+			target = "已配置目录"
+		}
+		return h.send(ctx, chatID, "115："+status+"\n目标："+target)
 	}
-	if s, ok := h.sessions.Get(userID); ok && s.Kind == "set115" {
+	if s, ok := h.sessions.Get(userID); ok {
 		if chatID != userID {
-			return h.send(ctx, chatID, "请回到 Bot 私聊发送 115 Cookie。")
+			return h.send(ctx, chatID, "请回到 Bot 私聊完成 115 配置。")
 		}
-		return h.set115(ctx, userID, chatID, text)
+		switch s.Kind {
+		case "set115_cookie":
+			return h.receive115Cookie(ctx, userID, chatID, messageID, text)
+		case "set115_cid":
+			return h.receive115CID(ctx, userID, chatID, text, s.Data["cookie"])
+		}
 	}
 	return h.search(ctx, userID, chatID, text, 1)
 }
@@ -211,24 +259,85 @@ func (h *Handler) handleAdmin(ctx context.Context, actor, chatID int64, cmd, arg
 			return err
 		}
 		return h.send(ctx, chatID, FormatLogs(logs))
+	case "/unlockreset":
+		var userID int64
+		var resourceID string
+		if _, err := fmt.Sscanf(arg, "%d %s", &userID, &resourceID); err != nil || userID <= 0 || strings.TrimSpace(resourceID) == "" {
+			return h.send(ctx, chatID, "用法：/unlockreset <user_id> <resource_id>")
+		}
+		admin, ok := h.services.HDHive.(UnlockAdminService)
+		if !ok {
+			return h.send(ctx, chatID, "解锁恢复服务未配置。")
+		}
+		if err := admin.ResetUnlockRecord(ctx, userID, resourceID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return h.send(ctx, chatID, "只有 unknown 状态可以解除；记录可能仍在 in_flight、已经成功或不存在。")
+			}
+			return err
+		}
+		h.sessions.ResetUnlock(userID, resourceID)
+		h.log(ctx, actor, "unlockreset", fmt.Sprintf("user=%d resource=%s", userID, resourceID))
+		return h.send(ctx, chatID, "解锁状态已解除。请先人工核验是否已扣费，再让用户重新操作。")
 	}
 	return nil
 }
 
-func (h *Handler) set115(ctx context.Context, userID, chatID int64, cookie string) error {
-	cookie = strings.TrimSpace(cookie)
-	if cookie == "" {
-		return h.send(ctx, chatID, "Cookie 不能为空。")
+func normalize115Cookie(cookie string) string {
+	parts := strings.Split(strings.TrimSpace(cookie), ";")
+	clean := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if value := strings.TrimSpace(part); value != "" {
+			clean = append(clean, value)
+		}
+	}
+	return strings.Join(clean, ";")
+}
+
+func valid115Cookie(cookie string) bool {
+	keys := map[string]bool{}
+	for _, part := range strings.Split(cookie, ";") {
+		pair := strings.SplitN(part, "=", 2)
+		if len(pair) == 2 {
+			keys[strings.ToUpper(strings.TrimSpace(pair[0]))] = true
+		}
+	}
+	return keys["UID"] && keys["CID"] && keys["SEID"]
+}
+
+func (h *Handler) receive115Cookie(ctx context.Context, userID, chatID int64, messageID int, raw string) error {
+	cookie := normalize115Cookie(raw)
+	deleted := messageID > 0 && h.messenger.DeleteMessage(ctx, chatID, messageID) == nil
+	if !valid115Cookie(cookie) {
+		warning := ""
+		if !deleted {
+			warning = "\nBot 无法自动删除原消息，请立即手动删除。"
+		}
+		return h.send(ctx, chatID, "Cookie 格式不正确，应包含 UID、CID、SEID，请重新发送。"+warning)
+	}
+	if err := h.sessions.Set(userID, "set115_cid", map[string]string{"cookie": cookie}); err != nil {
+		return err
+	}
+	warning := ""
+	if !deleted {
+		warning = "\nBot 无法自动删除 Cookie 消息，请立即手动删除。"
+	}
+	return h.send(ctx, chatID, "Cookie 格式已确认。请发送目标目录 cid；发送 0 表示根目录。"+warning)
+}
+
+func (h *Handler) receive115CID(ctx context.Context, userID, chatID int64, targetCID, cookie string) error {
+	targetCID = strings.TrimSpace(targetCID)
+	if targetCID == "" || strings.Trim(targetCID, "0123456789") != "" {
+		return h.send(ctx, chatID, "目标目录 cid 必须是数字；根目录请输入 0。")
 	}
 	if h.services.Accounts == nil {
 		return h.send(ctx, chatID, "115 服务未配置。")
 	}
-	if err := h.services.Accounts.SetP115Config(ctx, userID, store.P115Config{Cookie: cookie, TargetCID: "0", Enabled: true}); err != nil {
+	if err := h.services.Accounts.SetP115Config(ctx, userID, store.P115Config{Cookie: cookie, TargetCID: targetCID, Enabled: true}); err != nil {
 		return err
 	}
 	h.sessions.ClearInteraction(userID)
-	h.log(ctx, userID, "set115", "configured")
-	return h.send(ctx, chatID, "115 Cookie 已加密保存。")
+	h.log(ctx, userID, "set115", map[bool]string{true: "root", false: "configured"}[targetCID == "0"])
+	return h.send(ctx, chatID, "115 配置已加密保存。")
 }
 
 func (h *Handler) search(ctx context.Context, userID, chatID int64, query string, page int) error {
@@ -284,6 +393,23 @@ func (h *Handler) HandleCallback(ctx context.Context, userID, chatID int64, call
 		return h.send(ctx, chatID, "已取消解锁。")
 	case "transfer":
 		return h.transfer(ctx, userID, chatID, cb.Value)
+	case "unset115_cancel":
+		h.sessions.DeleteCallback(token)
+		return h.send(ctx, chatID, "已取消停用 115 配置。")
+	case "unset115_confirm":
+		h.sessions.DeleteCallback(token)
+		if h.isAdmin(userID) {
+			return h.send(ctx, chatID, "管理员不能通过 Bot 删除自己的 115 配置。")
+		}
+		cfg, err := h.services.Accounts.GetP115Config(ctx, userID)
+		if err != nil || !cfg.Enabled || cfg.Cookie != cb.Value {
+			return h.send(ctx, chatID, "确认已过期或配置已变化，请重新发送 /unset115。")
+		}
+		if err := h.services.Accounts.DisableP115Config(ctx, userID); err != nil {
+			return err
+		}
+		h.log(ctx, userID, "unset115", "disabled")
+		return h.send(ctx, chatID, "115 配置已停用。")
 	}
 	return nil
 }
@@ -365,7 +491,7 @@ func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) e
 	r, err := h.services.HDHive.Unlock(ctx, userID, id)
 	if err != nil {
 		_ = h.sessions.SetUnlockStatus(userID, id, session.UnlockUnknown)
-		return h.send(ctx, chatID, "解锁结果未知，请稍后查询详情，勿重复付费。")
+		return h.send(ctx, chatID, "unknown，请联系管理员。请勿重复付费解锁。")
 	}
 	_ = h.sessions.SetUnlockStatus(userID, id, session.UnlockSuccess)
 	h.log(ctx, userID, "unlock", id)
@@ -406,12 +532,15 @@ func (h *Handler) send(ctx context.Context, chatID int64, text string) error {
 	return h.messenger.Send(ctx, chatID, Outgoing{Text: text})
 }
 func splitCommand(text string) (string, string) {
-	p := strings.SplitN(text, " ", 2)
-	cmd := strings.ToLower(strings.SplitN(p[0], "@", 2)[0])
-	if len(p) == 1 {
-		return cmd, ""
+	index := strings.IndexFunc(text, unicode.IsSpace)
+	command := text
+	arg := ""
+	if index >= 0 {
+		command = text[:index]
+		arg = strings.TrimSpace(text[index:])
 	}
-	return cmd, strings.TrimSpace(p[1])
+	cmd := strings.ToLower(strings.SplitN(command, "@", 2)[0])
+	return cmd, arg
 }
 func parseIDArg(s string) (int64, string, error) {
 	var id int64

@@ -12,9 +12,10 @@ func HelpText(admin bool) string {
 		"欢迎使用 HDHive Bot。",
 		"直接发送影视关键词即可搜索。",
 		"/myid - 查看 Telegram User ID",
-		"/set115 [cookie] - 配置 115 Cookie",
-		"/unset115 - 删除 115 配置",
-		"/my115 - 查看脱敏后的配置状态",
+		"/set115 - 分步配置 115 Cookie 和目标目录",
+		"/cancel - 取消当前配置流程",
+		"/unset115 - 确认后停用 115 配置",
+		"/my115 - 查看配置状态和目标目录",
 	}
 	if admin {
 		commands = append(commands,

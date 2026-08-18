@@ -166,6 +166,21 @@ func (a *HDHiveAdapter) Unlock(ctx context.Context, userID int64, id string) (te
 	return r, nil
 }
 
+func (a *HDHiveAdapter) ResetUnlockRecord(ctx context.Context, userID int64, resourceID string) error {
+	if a.Store == nil {
+		return store.ErrNotFound
+	}
+	if err := a.Store.ResetUnlockRecord(ctx, userID, resourceID); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	if perUser := a.unlocked[userID]; perUser != nil {
+		delete(perUser, resourceID)
+	}
+	a.mu.Unlock()
+	return nil
+}
+
 func (a *HDHiveAdapter) DetailForUser(userID int64, id string) (telegram.Resource, bool) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -223,14 +238,51 @@ func defaultString(value, fallback string) string {
 	return value
 }
 
+type transferCall struct {
+	done   chan struct{}
+	result string
+	err    error
+}
+
 // TransferAdapter implements telegram.TransferService without exposing p115 details to handlers.
 type TransferAdapter struct {
 	HTTP   p115.HTTPDoer
 	Logger p115.Logger
 	HDHive *HDHiveAdapter
+	mu     sync.Mutex
+	calls  map[string]*transferCall
 }
 
-func (a TransferAdapter) Transfer115(ctx context.Context, userID int64, cfg store.P115Config, r telegram.Resource) (string, error) {
+func (a *TransferAdapter) Transfer115(ctx context.Context, userID int64, cfg store.P115Config, r telegram.Resource) (string, error) {
+	key := fmt.Sprintf("%d:%s", userID, r.ID)
+	a.mu.Lock()
+	if a.calls == nil {
+		a.calls = make(map[string]*transferCall)
+	}
+	if existing := a.calls[key]; existing != nil {
+		a.mu.Unlock()
+		select {
+		case <-existing.done:
+			return existing.result, existing.err
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	call := &transferCall{done: make(chan struct{})}
+	a.calls[key] = call
+	a.mu.Unlock()
+
+	call.result, call.err = a.transfer115(ctx, userID, cfg, r)
+	close(call.done)
+	a.mu.Lock()
+	if a.calls[key] == call {
+		delete(a.calls, key)
+	}
+	a.mu.Unlock()
+	return call.result, call.err
+}
+
+func (a *TransferAdapter) transfer115(ctx context.Context, userID int64, cfg store.P115Config, r telegram.Resource) (string, error) {
 	if a.HDHive == nil {
 		return "", errors.New("hdhive unlock state is unavailable")
 	}

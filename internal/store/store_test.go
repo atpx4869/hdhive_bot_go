@@ -100,6 +100,16 @@ func TestP115ConfigCRUDEncryptedAtRest(t *testing.T) {
 	if _, err := s.GetP115Config(ctx, 8); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing GetP115Config() error = %v", err)
 	}
+	if err := s.DisableP115Config(ctx, 7); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetP115Config(ctx, 7)
+	if err != nil || got.Enabled {
+		t.Fatalf("disabled GetP115Config() = %#v, %v", got, err)
+	}
+	if err := s.DisableP115Config(ctx, 7); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second DisableP115Config() error = %v", err)
+	}
 	if err := s.DeleteP115Config(ctx, 7); err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +135,28 @@ func TestP115ConfigBoundToUserID(t *testing.T) {
 	}
 	if _, err := s.GetP115Config(ctx, 8); err == nil {
 		t.Fatal("GetP115Config() decrypted data under a different user ID")
+	}
+}
+
+func TestResetUnlockRecordOnlyAllowsUnknown(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.SetUnlockRecord(ctx, UnlockRecord{UserID: 7, ResourceID: "unknown", Status: "unknown"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ResetUnlockRecord(ctx, 7, "unknown"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetUnlockRecord(ctx, 7, "unknown"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown record was not reset: %v", err)
+	}
+	for _, status := range []string{"in_flight", "success"} {
+		if err := s.SetUnlockRecord(ctx, UnlockRecord{UserID: 7, ResourceID: status, Status: status, Result: map[bool][]byte{true: []byte("ok"), false: nil}[status == "success"]}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ResetUnlockRecord(ctx, 7, status); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("%s record should not reset: %v", status, err)
+		}
 	}
 }
 

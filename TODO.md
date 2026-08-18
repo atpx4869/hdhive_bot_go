@@ -27,19 +27,19 @@
 - [ ] 增加“解锁成功后请求 context 取消，结果仍能保存”的回归测试。
 - [ ] 增加“数据库查询/解密失败时禁止继续解锁”的回归测试。
 - [ ] 增加“进程重启后从 SQLite 恢复分享信息并转存”的集成测试。
-- [ ] 将 HDHive `unknown` 状态增加管理员人工核验/解除机制，避免永久锁死。
-- [ ] 为 `in_flight` 增加超时和人工恢复策略，但不得自动重新执行付费解锁。
+- [x] 将 HDHive `unknown` 状态增加管理员人工核验/解除机制，避免永久锁死（`/unlockreset <user_id> <resource_id>`）。
+- [ ] 为 `in_flight` 增加安全的超时或租约恢复策略；活跃请求不得被管理员直接解除，避免并行重复扣费。
 - [ ] 定义稳定的业务错误码，并将 TMDB、HDHive、115 错误映射成用户可理解的提示。
 - [ ] 区分 HDHive 业务拒绝和网络不确定：明确拒绝可标记 `rejected`，只有结果不确定才标记 `unknown`。
 - [ ] 对 Telegram handler 增加统一错误日志和用户重试按钮。
-- [ ] 增加 115 转存 keyed lock 或持久化操作状态，防止用户并发重复转存。
+- [x] 增加 115 转存 keyed lock / 完成状态缓存，防止用户并发重复转存。
 - [ ] 为 TMDB、HDHive 和 115 设置更细的 connect/read/write 超时，而不只使用总超时。
 - [ ] 为 115 Web API 增加可配置 User-Agent 和 endpoint，便于接口变化时快速调整。
 
 ## P1：安全
 
-- [ ] `/set115` 成功读取 Cookie 后，尝试删除用户发送的 Cookie 消息。
-- [ ] `/my115` 不再显示 Cookie 掩码，只显示“已配置/已停用”和目标目录。
+- [x] `/set115` 成功读取 Cookie 后，尝试删除用户发送的 Cookie 消息；失败时提示用户手动删除。
+- [x] `/my115` 不再显示 Cookie 掩码，只显示“已配置/已停用”和目标目录。
 - [ ] 增加日志脱敏 middleware，统一屏蔽 Bot Token、TMDB Token、HDHive Secret/User Key、115 Cookie 和访问码。
 - [ ] 为错误链增加脱敏测试，确保 `http.Client` 和第三方 Telegram library 的错误不会包含完整 URL/Token。
 - [ ] 设计并实现 `ENCRYPTION_KEY` 轮换命令，对 SQLite 中的 Cookie 和解锁结果重新加密。
@@ -60,8 +60,9 @@
 - [ ] 解锁成功后提供“转存到 115”“返回资源列表”“新搜索”快捷按钮。
 - [ ] 转存失败时根据错误类型提供“重新配置 115”“重试”“换线路”等操作。
 - [ ] `/users` 和 `/logs` 增加分页、过滤和 Callback owner 校验测试。
-- [ ] `/set115` 改为分步交互：先 Cookie，再选择或填写目标目录。
-- [ ] 增加 `/cancel`，用于退出 `/set115` 等交互状态。
+- [x] `/set115` 改为分步交互：先 Cookie，再填写目标目录 cid；支持 `/cancel` 退出。
+- [x] 增加 `/cancel`，用于退出 `/set115` 等交互状态。
+- [x] `/unset115` 增加管理员保护、普通用户二次确认、配置版本校验和 `enabled=false` 软删除。
 
 ## P2：数据和运维
 

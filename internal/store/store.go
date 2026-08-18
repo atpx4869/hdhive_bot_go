@@ -305,6 +305,21 @@ func (s *Store) GetP115Config(ctx context.Context, userID int64) (P115Config, er
 	return cfg, nil
 }
 
+func (s *Store) DisableP115Config(ctx context.Context, userID int64) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE p115_accounts SET enabled = 0, updated_at = ? WHERE user_id = ? AND enabled = 1`, s.nowUTC().UnixMilli(), userID)
+	if err != nil {
+		return fmt.Errorf("disable p115 config: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("p115 rows affected: %w", err)
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) DeleteP115Config(ctx context.Context, userID int64) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM p115_accounts WHERE user_id = ?`, userID)
 	if err != nil {
@@ -358,6 +373,21 @@ func (s *Store) GetUnlockRecord(ctx context.Context, userID int64, resourceID st
 		record.Result = plaintext
 	}
 	return record, nil
+}
+
+func (s *Store) ResetUnlockRecord(ctx context.Context, userID int64, resourceID string) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM unlock_records WHERE user_id = ? AND resource_id = ? AND status = 'unknown'`, userID, resourceID)
+	if err != nil {
+		return fmt.Errorf("reset unlock record: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("reset unlock rows affected: %w", err)
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) SetUnlockRecord(ctx context.Context, record UnlockRecord) error {

@@ -40,6 +40,20 @@ func TestCallbackBoundToUser(t *testing.T) {
 	}
 }
 
+func TestResetUnlockAllowsNewAttempt(t *testing.T) {
+	m := New(time.Minute, 10)
+	if err := m.BeginUnlock(1, "r"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.TransitionUnlock(1, "r", UnlockPending, UnlockInFlight); err != nil {
+		t.Fatal(err)
+	}
+	m.ResetUnlock(1, "r")
+	if err := m.BeginUnlock(1, "r"); err != nil {
+		t.Fatalf("reset should allow a new guarded attempt: %v", err)
+	}
+}
+
 func TestUnlockDuplicateAndStatuses(t *testing.T) {
 	m := New(time.Minute, 10)
 	if err := m.BeginUnlock(1, "r"); err != nil {

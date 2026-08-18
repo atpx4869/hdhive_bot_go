@@ -37,11 +37,19 @@ func (m BotMessenger) AnswerCallback(ctx context.Context, id, text string) error
 	return err
 }
 
+func (m BotMessenger) DeleteMessage(ctx context.Context, chatID int64, messageID int) error {
+	if messageID <= 0 {
+		return fmt.Errorf("message ID is required")
+	}
+	_, err := m.Bot.DeleteMessage(ctx, &gbot.DeleteMessageParams{ChatID: chatID, MessageID: messageID})
+	return err
+}
+
 // UpdateHandler returns a go-telegram/bot default handler.
 func (h *Handler) UpdateHandler() gbot.HandlerFunc {
 	return func(ctx context.Context, _ *gbot.Bot, update *models.Update) {
 		if update.Message != nil && update.Message.From != nil {
-			if err := h.HandleText(ctx, update.Message.From.ID, update.Message.Chat.ID, update.Message.Text); err != nil {
+			if err := h.HandleMessage(ctx, update.Message.From.ID, update.Message.Chat.ID, update.Message.ID, update.Message.Text); err != nil {
 				h.reportError(ctx, update.Message.Chat.ID, err)
 			}
 			return

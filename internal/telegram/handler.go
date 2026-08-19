@@ -449,7 +449,7 @@ func (h *Handler) HandleDocument(ctx context.Context, userID, chatID int64, file
 	source, _ := data["source"].(string)
 	imported := 0
 	skipped := 0
-	errors := []string{}
+	importErrors := []string{}
 
 	// 导入用户数据
 	if users, ok := data["users"]; ok {
@@ -469,7 +469,7 @@ func (h *Handler) HandleDocument(ctx context.Context, userID, chatID int64, file
 				note, _ := userMap["note"].(string)
 
 				if err := h.services.Users.SetUserAuthorization(ctx, uid, authorized); err != nil {
-					errors = append(errors, fmt.Sprintf("用户 %d: %v", uid, err))
+					importErrors = append(importErrors, fmt.Sprintf("用户 %d: %v", uid, err))
 					continue
 				}
 				if note != "" {
@@ -491,7 +491,7 @@ func (h *Handler) HandleDocument(ctx context.Context, userID, chatID int64, file
 				note, _ := userMap["note"].(string)
 
 				if err := h.services.Users.SetUserAuthorization(ctx, int64(uid), authorized); err != nil {
-					errors = append(errors, fmt.Sprintf("用户 %d: %v", int64(uid), err))
+					importErrors = append(importErrors, fmt.Sprintf("用户 %d: %v", int64(uid), err))
 					continue
 				}
 				if note != "" {
@@ -535,7 +535,7 @@ func (h *Handler) HandleDocument(ctx context.Context, userID, chatID int64, file
 						TargetCID: targetCID,
 						Enabled:   enabled,
 					}); err != nil {
-						errors = append(errors, fmt.Sprintf("115 配置 %d: %v", uid, err))
+						importErrors = append(importErrors, fmt.Sprintf("115 配置 %d: %v", uid, err))
 						continue
 					}
 				}
@@ -553,9 +553,9 @@ func (h *Handler) HandleDocument(ctx context.Context, userID, chatID int64, file
 		result.WriteString(fmt.Sprintf("• 跳过：%d 个\n", skipped))
 	}
 
-	if len(errors) > 0 {
-		result.WriteString(fmt.Sprintf("\n⚠️ 错误：%d 个\n", len(errors)))
-		for i, e := range errors {
+	if len(importErrors) > 0 {
+		result.WriteString(fmt.Sprintf("\n⚠️ 错误：%d 个\n", len(importErrors)))
+		for i, e := range importErrors {
 			if i >= 5 {
 				result.WriteString("...\n")
 				break

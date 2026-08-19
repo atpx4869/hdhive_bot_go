@@ -29,12 +29,12 @@
 - [ ] 增加“进程重启后从 SQLite 恢复分享信息并转存”的集成测试。
 - [x] 将 HDHive `unknown` 状态增加管理员人工核验/解除机制，避免永久锁死（`/unlockreset <user_id> <resource_id>`）。
 - [x] 为 `in_flight` 增加安全的超时或租约恢复策略；活跃请求不得被管理员直接解除，避免并行重复扣费。
-- [ ] 定义稳定的业务错误码，并将 TMDB、HDHive、115 错误映射成用户可理解的提示。
+- [x] 定义稳定的业务错误码，并将 TMDB、HDHive、115 错误映射成用户可理解的提示。
 - [x] 区分 HDHive 业务拒绝和网络不确定：明确拒绝可标记 `rejected`，只有结果不确定才标记 `unknown`。
 - [x] 对 Telegram handler 增加统一错误日志和用户重试按钮。
 - [x] 增加 115 转存 keyed lock / 完成状态缓存，防止用户并发重复转存。
 - [x] 为 TMDB、HDHive 和 115 设置更细的 connect/read/write 超时，而不只使用总超时。
-- [ ] 为 115 Web API 增加可配置 User-Agent 和 endpoint，便于接口变化时快速调整。
+- [x] 为 115 Web API 增加可配置 User-Agent 和 endpoint，便于接口变化时快速调整。
 
 ## P1：安全
 
@@ -45,7 +45,7 @@
 - [x] 设计并实现 `ENCRYPTION_KEY` 轮换命令，对 SQLite 中的 Cookie 和解锁结果重新加密。
 - [x] 启动时检查 SQLite 文件权限；Linux 下建议限制为 `0600`。
 - [x] Docker Compose 增加 `read_only`、`tmpfs`、`security_opt: no-new-privileges:true` 和 capability drop 的可行性验证。
-- [ ] 为迁移源 JSON 增加权限警告，迁移完成后提示用户安全删除旧文件。
+- [x] 为迁移源 JSON 增加权限警告，迁移完成后提示用户安全删除旧文件。
 - [x] 管理员列表以环境变量为最高权威，增加测试确保数据库用户无法提升为管理员。
 
 ## P2：Telegram UI/UX

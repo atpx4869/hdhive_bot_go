@@ -298,6 +298,11 @@ func (h *Handler) HandleDocument(ctx context.Context, userID, chatID int64, file
 		}
 	}
 
+	// Note activity_logs are not imported
+	if _, hasLogs := data["activity_logs"]; hasLogs {
+		skipped++ // count as skipped for reporting
+	}
+
 	var result strings.Builder
 	result.WriteString("📥 <b>导入完成</b>\n\n")
 	result.WriteString(fmt.Sprintf("• 数据源：%s\n", source))
@@ -315,6 +320,7 @@ func (h *Handler) HandleDocument(ctx context.Context, userID, chatID int64, file
 			result.WriteString(fmt.Sprintf("  • %s\n", e))
 		}
 	}
+	result.WriteString("\n💡 活动日志未导入（仅限导出查看）。")
 
 	h.log(ctx, userID, "import", fileName)
 	return h.send(ctx, chatID, result.String())

@@ -190,7 +190,7 @@ func (h *Handler) transfer(ctx context.Context, userID, chatID int64, id string)
 				reconfigBtn, _ := h.sessions.BindCallback(userID, "set115", "")
 				buttons = append(buttons, Button{Text: "重新配置 115", CallbackData: reconfigBtn})
 			case p115.KindRateLimit:
-				buttons = append(buttons, Button{Text: "稍后重试", CallbackData: ""})
+				// No button needed — user can use the retry button below
 			}
 		} else {
 			// Fallback for non-p115 errors: check common auth patterns

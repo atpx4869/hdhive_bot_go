@@ -245,7 +245,9 @@ func (c *Client) Receive(ctx context.Context, share Share, opts ReceiveOptions) 
 
 func (c *Client) snapRoot(ctx context.Context, share Share) ([]map[string]any, error) {
 	var out []map[string]any
-	for offset := 0; ; offset += c.pageSize {
+	const maxPages = 20 // safety limit: 20 pages × 100 items = 2000 max
+	for page := 0; page < maxPages; page++ {
+		offset := page * c.pageSize
 		items, err := c.snapPage(ctx, share, "0", c.pageSize, offset)
 		if err != nil {
 			return nil, err
@@ -255,6 +257,7 @@ func (c *Client) snapRoot(ctx context.Context, share Share) ([]map[string]any, e
 			return out, nil
 		}
 	}
+	return out, nil
 }
 
 func (c *Client) snapPage(ctx context.Context, s Share, cid string, limit, offset int) ([]map[string]any, error) {
@@ -314,7 +317,7 @@ func classify(status int, p map[string]any) *Error {
 		kind = KindRateLimit
 	} else if errno == "4200045" || strings.Contains(msg, "已接收") || strings.Contains(msg, "重复") {
 		kind = KindAlreadyReceived
-	} else if strings.Contains(msg, "提取码") || strings.Contains(msg, "分享") && strings.Contains(msg, "失效") {
+	} else if strings.Contains(msg, "提取码") || (strings.Contains(msg, "分享") && strings.Contains(msg, "失效")) {
 		kind = KindInvalidShare
 	}
 	return &Error{Kind: kind, StatusCode: status, Errno: errno, Message: msg}

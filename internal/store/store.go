@@ -714,6 +714,24 @@ func (s *Store) GetUnknownUnlockRecords(ctx context.Context, limit int) ([]Unloc
 	return records, nil
 }
 
+// SetUnlockRecordRaw stores an already-encrypted unlock result directly,
+// bypassing the store's Cryptor. Used during key rotation when the caller
+// has already re-encrypted the data with the new key.
+func (s *Store) SetUnlockRecordRaw(ctx context.Context, userID int64, resourceID, status string, encryptedResult []byte) error {
+	if userID <= 0 || strings.TrimSpace(resourceID) == "" {
+		return errors.New("unlock user and resource are required")
+	}
+	if err := s.ensureUser(ctx, userID); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE unlock_records SET status=?, encrypted_result=?, updated_at=? WHERE user_id=? AND resource_id=?`,
+		status, encryptedResult, s.nowUTC().UnixMilli(), userID, resourceID)
+	if err != nil {
+		return fmt.Errorf("set unlock record raw: %w", err)
+	}
+	return nil
+}
+
 // ListUnlockRecordsByUser 获取用户的所有解锁记录（用于密钥轮换）
 func (s *Store) ListUnlockRecordsByUser(ctx context.Context, userID int64) ([]UnlockRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT resource_id, status, encrypted_result, updated_at FROM unlock_records WHERE user_id = ?`, userID)

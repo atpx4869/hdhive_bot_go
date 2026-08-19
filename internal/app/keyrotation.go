@@ -94,13 +94,9 @@ func rotateUnlockRecords(ctx context.Context, db *store.Store, userID int64, old
 				userID, record.ResourceID, err)
 		}
 
-		// Update record
-		if err := db.SetUnlockRecord(ctx, store.UnlockRecord{
-			UserID:     userID,
-			ResourceID: record.ResourceID,
-			Status:     record.Status,
-			Result:     newEncrypted, // SetUnlockRecord will encrypt this again
-		}); err != nil {
+		// Update record using raw method to avoid double encryption
+		// (SetUnlockRecord would re-encrypt with the store's current cryptor)
+		if err := db.SetUnlockRecordRaw(ctx, userID, record.ResourceID, record.Status, newEncrypted); err != nil {
 			return rotated, fmt.Errorf("update unlock record: %w", err)
 		}
 		rotated++

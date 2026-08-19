@@ -195,7 +195,7 @@ func (a *HDHiveAdapter) Unlock(ctx context.Context, userID int64, id string) (te
 		}
 	}
 	a.mu.RLock()
-	r, ok := a.resources[id]
+	r, ok := a.getCachedResource(id)
 	a.mu.RUnlock()
 	if !ok {
 		return telegram.Resource{}, telegram.ErrNotFound

@@ -358,8 +358,100 @@ func TestUnlockFailureUsesUnknownAdminMessage(t *testing.T) {
 	if err := h.unlock(context.Background(), 1, 1, "r1"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(m.sent[len(m.sent)-1].Text, "unknown，请联系管理员") {
+	if !strings.Contains(m.sent[len(m.sent)-1].Text, "解锁结果不确定") {
 		t.Fatalf("unexpected message: %s", m.sent[len(m.sent)-1].Text)
+	}
+}
+
+func TestAdminAuthorityFromEnvOnly(t *testing.T) {
+	// 验证管理员只能从环境变量（构造函数参数）加载，不能从数据库提升
+	m := &fakeMessenger{}
+	users := &fakeUsers{users: map[int64]store.User{
+		1: {ID: 1, Authorized: true}, // 普通授权用户
+		2: {ID: 2, Authorized: true}, // 另一个授权用户
+	}}
+	// 只有 ID=9 是管理员
+	h, _ := NewHandler(Services{Users: users}, session.New(time.Minute, 10), m, []int64{9})
+
+	// 授权用户不能执行管理员命令
+	if err := h.HandleText(context.Background(), 1, 1, "/authorize 3"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.sent[len(m.sent)-1].Text, "无权限") {
+		t.Fatalf("non-admin should not authorize: %s", m.sent[len(m.sent)-1].Text)
+	}
+
+	// 授权用户不能查看用户列表
+	if err := h.HandleText(context.Background(), 1, 1, "/users"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.sent[len(m.sent)-1].Text, "无权限") {
+		t.Fatalf("non-admin should not list users: %s", m.sent[len(m.sent)-1].Text)
+	}
+
+	// 授权用户不能查看日志
+	if err := h.HandleText(context.Background(), 1, 1, "/logs"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.sent[len(m.sent)-1].Text, "无权限") {
+		t.Fatalf("non-admin should not view logs: %s", m.sent[len(m.sent)-1].Text)
+	}
+
+	// 授权用户不能重置解锁状态
+	if err := h.HandleText(context.Background(), 1, 1, "/unlockreset 2 r1"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.sent[len(m.sent)-1].Text, "无权限") {
+		t.Fatalf("non-admin should not reset unlock: %s", m.sent[len(m.sent)-1].Text)
+	}
+}
+
+func TestAuthorizedUserCannotEscalateToAdmin(t *testing.T) {
+	// 验证授权用户不能通过 /authorize 将自己或他人提升为管理员
+	m := &fakeMessenger{}
+	users := &fakeUsers{users: map[int64]store.User{
+		1: {ID: 1, Authorized: true},
+	}}
+	h, _ := NewHandler(Services{Users: users}, session.New(time.Minute, 10), m, []int64{9})
+
+	// 授权用户尝试授权他人
+	if err := h.HandleText(context.Background(), 1, 1, "/authorize 3"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.sent[len(m.sent)-1].Text, "无权限") {
+		t.Fatalf("authorized user should not authorize others: %s", m.sent[len(m.sent)-1].Text)
+	}
+
+	// 验证管理员可以授权
+	if err := h.HandleText(context.Background(), 9, 9, "/authorize 3"); err != nil {
+		t.Fatal(err)
+	}
+	if !users.users[3].Authorized {
+		t.Fatal("admin should be able to authorize")
+	}
+}
+
+func TestAdminListIsImmutable(t *testing.T) {
+	// 验证管理员列表在运行时不会改变
+	m := &fakeMessenger{}
+	users := &fakeUsers{users: map[int64]store.User{}}
+	sm := session.New(time.Minute, 10)
+	h, _ := NewHandler(Services{Users: users}, sm, m, []int64{9})
+
+	// 管理员授权用户
+	if err := h.HandleText(context.Background(), 9, 9, "/authorize 1"); err != nil {
+		t.Fatal(err)
+	}
+	if !users.users[1].Authorized {
+		t.Fatal("user should be authorized")
+	}
+
+	// 被授权的用户仍然不能执行管理员命令
+	if err := h.HandleText(context.Background(), 1, 1, "/users"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.sent[len(m.sent)-1].Text, "无权限") {
+		t.Fatalf("authorized user should not become admin: %s", m.sent[len(m.sent)-1].Text)
 	}
 }
 

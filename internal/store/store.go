@@ -6,6 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -72,6 +76,10 @@ func Open(ctx context.Context, dsn string, crypt Cryptor) (*Store, error) {
 	}
 	if crypt == nil {
 		return nil, errors.New("cryptor is required")
+	}
+	// 检查 SQLite 文件权限
+	if err := checkFilePermissions(dsn); err != nil {
+		slog.Warn("sqlite file permission warning", "error", err)
 	}
 	db, err := sql.Open("sqlite", withForeignKeys(dsn))
 	if err != nil {
@@ -480,4 +488,51 @@ func (s *Store) QueryActivityLogs(ctx context.Context, q ActivityQuery) ([]Activ
 		return nil, fmt.Errorf("iterate activity logs: %w", err)
 	}
 	return logs, nil
+}
+
+// checkFilePermissions checks SQLite file permissions and warns if too open.
+func checkFilePermissions(dsn string) error {
+	// 只在 Linux/macOS 上检查权限
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	// 从 DSN 中提取文件路径
+	dbPath := extractDBPath(dsn)
+	if dbPath == "" || dbPath == ":memory:" {
+		return nil
+	}
+	// 检查文件是否存在
+	info, err := os.Stat(dbPath)
+	if os.IsNotExist(err) {
+		return nil // 文件不存在，稍后会创建
+	}
+	if err != nil {
+		return fmt.Errorf("stat sqlite file: %w", err)
+	}
+	// 检查权限
+	mode := info.Mode().Perm()
+	if mode&0077 != 0 {
+		return fmt.Errorf("sqlite file %s has permissions %o (recommended: 0600)", dbPath, mode)
+	}
+	return nil
+}
+
+// extractDBPath extracts the file path from a SQLite DSN.
+func extractDBPath(dsn string) string {
+	// 处理 file: 前缀
+	if strings.HasPrefix(dsn, "file:") {
+		dsn = strings.TrimPrefix(dsn, "file:")
+		// 移除查询参数
+		if idx := strings.Index(dsn, "?"); idx >= 0 {
+			dsn = dsn[:idx]
+		}
+	}
+	// 处理相对路径
+	if dsn != "" && !filepath.IsAbs(dsn) {
+		abs, err := filepath.Abs(dsn)
+		if err == nil {
+			return abs
+		}
+	}
+	return dsn
 }

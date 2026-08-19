@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/atpx4869/hdhive_bot_go/internal/hdhive"
 	"github.com/atpx4869/hdhive_bot_go/internal/session"
 	"github.com/atpx4869/hdhive_bot_go/internal/store"
 )
@@ -47,6 +48,7 @@ type TMDBService interface {
 
 type Resource struct {
 	ID, Title, Quality, Size, Description string
+	Subtitle, Source                      string
 	ShareURL, ShareCode, ReceiveCode      string
 	UnlockSlug                            string
 	FeeKnown                              bool
@@ -144,8 +146,17 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 		return h.send(ctx, chatID, "请不要把 Cookie 放在命令后。请在 Bot 私聊重新发送 /set115，再按提示单独发送 Cookie；若原消息仍可见请立即手动删除。")
 	}
 	switch cmd {
-	case "/start":
-		return h.send(ctx, chatID, HelpText(h.isAdmin(userID)))
+	case "/start", "/help":
+		// 获取 115 配置状态
+		p115Enabled := false
+		p115Target := ""
+		if h.services.Accounts != nil {
+			if cfg, err := h.services.Accounts.GetP115Config(ctx, userID); err == nil {
+				p115Enabled = cfg.Enabled
+				p115Target = cfg.TargetCID
+			}
+		}
+		return h.send(ctx, chatID, StatusPanel(userID, h.isAdmin(userID), h.authorized(ctx, userID), p115Enabled, p115Target))
 	case "/myid":
 		return h.send(ctx, chatID, fmt.Sprintf("你的 Telegram User ID：%d", userID))
 	case "/authorize", "/revoke", "/users", "/note", "/logs", "/unlockreset":
@@ -245,20 +256,71 @@ func (h *Handler) handleAdmin(ctx context.Context, actor, chatID int64, cmd, arg
 		}
 		return h.send(ctx, chatID, "备注已更新。")
 	case "/users":
-		users, err := h.services.Users.ListUsers(ctx, 100, 0)
+		page := 1
+		if arg != "" {
+			fmt.Sscanf(arg, "%d", &page)
+		}
+		if page < 1 {
+			page = 1
+		}
+		const pageSize = 20
+		offset := (page - 1) * pageSize
+		users, err := h.services.Users.ListUsers(ctx, pageSize+1, offset)
 		if err != nil {
 			return err
 		}
-		return h.send(ctx, chatID, FormatUsers(users))
+		hasMore := len(users) > pageSize
+		if hasMore {
+			users = users[:pageSize]
+		}
+		out := Outgoing{Text: FormatUsersPage(users, page, hasMore)}
+		var buttons []Button
+		if page > 1 {
+			prevToken, _ := h.sessions.BindCallback(actor, "admin_users", fmt.Sprintf("%d", page-1))
+			buttons = append(buttons, Button{Text: "⬅️ 上一页", CallbackData: prevToken})
+		}
+		if hasMore {
+			nextToken, _ := h.sessions.BindCallback(actor, "admin_users", fmt.Sprintf("%d", page+1))
+			buttons = append(buttons, Button{Text: "下一页 ➡️", CallbackData: nextToken})
+		}
+		if len(buttons) > 0 {
+			out.Buttons = [][]Button{buttons}
+		}
+		return h.messenger.Send(ctx, chatID, out)
 	case "/logs":
 		if h.services.Logs == nil {
 			return h.send(ctx, chatID, "日志服务未配置。")
 		}
-		logs, err := h.services.Logs.QueryActivityLogs(ctx, store.ActivityQuery{Limit: 50})
+		page := 1
+		if arg != "" {
+			fmt.Sscanf(arg, "%d", &page)
+		}
+		if page < 1 {
+			page = 1
+		}
+		const logPageSize = 20
+		logs, err := h.services.Logs.QueryActivityLogs(ctx, store.ActivityQuery{Limit: logPageSize + 1, Offset: (page - 1) * logPageSize})
 		if err != nil {
 			return err
 		}
-		return h.send(ctx, chatID, FormatLogs(logs))
+		hasMore := len(logs) > logPageSize
+		if hasMore {
+			logs = logs[:logPageSize]
+		}
+		out := Outgoing{Text: FormatLogsPage(logs, page, hasMore)}
+		var buttons []Button
+		if page > 1 {
+			prevToken, _ := h.sessions.BindCallback(actor, "admin_logs", fmt.Sprintf("%d", page-1))
+			buttons = append(buttons, Button{Text: "⬅️ 上一页", CallbackData: prevToken})
+		}
+		if hasMore {
+			nextToken, _ := h.sessions.BindCallback(actor, "admin_logs", fmt.Sprintf("%d", page+1))
+			buttons = append(buttons, Button{Text: "下一页 ➡️", CallbackData: nextToken})
+		}
+		if len(buttons) > 0 {
+			out.Buttons = [][]Button{buttons}
+		}
+		return h.messenger.Send(ctx, chatID, out)
 	case "/unlockreset":
 		var userID int64
 		var resourceID string
@@ -358,7 +420,11 @@ func (h *Handler) search(ctx context.Context, userID, chatID int64, query string
 		if err != nil {
 			return err
 		}
-		out.Buttons = append(out.Buttons, []Button{{Text: displayTitle(item), CallbackData: token}})
+		btnText := displayTitle(item)
+		if len(btnText) > 60 {
+			btnText = btnText[:57] + "..."
+		}
+		out.Buttons = append(out.Buttons, []Button{{Text: btnText, CallbackData: token}})
 	}
 	return h.messenger.Send(ctx, chatID, out)
 }
@@ -410,6 +476,20 @@ func (h *Handler) HandleCallback(ctx context.Context, userID, chatID int64, call
 		}
 		h.log(ctx, userID, "unset115", "disabled")
 		return h.send(ctx, chatID, "115 配置已停用。")
+	case "admin_users":
+		if !h.isAdmin(userID) {
+			return h.send(ctx, chatID, "无权限。")
+		}
+		page := 1
+		fmt.Sscanf(cb.Value, "%d", &page)
+		return h.handleAdmin(ctx, userID, chatID, "/users", fmt.Sprintf("%d", page))
+	case "admin_logs":
+		if !h.isAdmin(userID) {
+			return h.send(ctx, chatID, "无权限。")
+		}
+		page := 1
+		fmt.Sscanf(cb.Value, "%d", &page)
+		return h.handleAdmin(ctx, userID, chatID, "/logs", fmt.Sprintf("%d", page))
 	}
 	return nil
 }
@@ -490,15 +570,32 @@ func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) e
 	}
 	r, err := h.services.HDHive.Unlock(ctx, userID, id)
 	if err != nil {
+		// 区分业务拒绝和网络不确定错误
+		var apiErr *hdhive.APIError
+		if errors.As(err, &apiErr) && apiErr.Business {
+			_ = h.sessions.SetUnlockStatus(userID, id, session.UnlockRejected)
+			retryBtn, _ := h.sessions.BindCallback(userID, "unlock", id)
+			return h.messenger.Send(ctx, chatID, Outgoing{
+				Text:    "解锁被拒绝：" + apiErr.Message + "\n可能是积分不足、资源失效或账号权限不足。",
+				Buttons: [][]Button{{{Text: "重试解锁", CallbackData: retryBtn}}},
+			})
+		}
 		_ = h.sessions.SetUnlockStatus(userID, id, session.UnlockUnknown)
-		return h.send(ctx, chatID, "unknown，请联系管理员。请勿重复付费解锁。")
+		return h.send(ctx, chatID, "解锁结果不确定，请联系管理员。请勿重复付费解锁。")
 	}
 	_ = h.sessions.SetUnlockStatus(userID, id, session.UnlockSuccess)
 	h.log(ctx, userID, "unlock", id)
 	out := Outgoing{Text: "解锁成功。\n" + FormatResource(r)}
+	var buttons []Button
 	if h.services.Transfer != nil {
 		t, _ := h.sessions.BindCallback(userID, "transfer", id)
-		out.Buttons = [][]Button{{{Text: "转存到 115", CallbackData: t}}}
+		buttons = append(buttons, Button{Text: "转存到 115", CallbackData: t})
+	}
+	// 添加返回资源列表按钮
+	backBtn, _ := h.sessions.BindCallback(userID, "resources", id)
+	buttons = append(buttons, Button{Text: "返回资源列表", CallbackData: backBtn})
+	if len(buttons) > 0 {
+		out.Buttons = [][]Button{buttons}
 	}
 	return h.messenger.Send(ctx, chatID, out)
 }
@@ -585,8 +682,16 @@ func decodeResourcePage(v string) (TMDBItem, int) {
 	return i, page
 }
 func displayTitle(i TMDBItem) string {
-	if i.Title != "" {
-		return i.Title
+	title := i.Title
+	if title == "" {
+		title = i.OriginalTitle
 	}
-	return i.OriginalTitle
+	year := i.ReleaseDate
+	if len(year) >= 4 {
+		year = year[:4]
+	}
+	if year != "" {
+		return fmt.Sprintf("%s (%s)", title, year)
+	}
+	return title
 }

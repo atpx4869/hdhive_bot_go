@@ -41,15 +41,24 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 	defer db.Close()
-	httpClient, err := newHTTPClient(cfg)
+	// 为不同服务创建独立的 HTTP 客户端，支持细粒度超时
+	tmdbHTTPClient, err := newHTTPClientWithTimeout(cfg, cfg.TMDBTimeout)
 	if err != nil {
 		return err
 	}
-	tmdbClient, err := tmdb.New(cfg.TMDBToken, httpClient)
+	hdhiveHTTPClient, err := newHTTPClientWithTimeout(cfg, cfg.HDHiveTimeout)
 	if err != nil {
 		return err
 	}
-	hdhiveClient, err := hdhive.New(cfg.HDHiveBaseURL, cfg.HDHiveSecret, cfg.HDHiveUserID, cfg.HDHiveUserKey, httpClient)
+	p115HTTPClient, err := newHTTPClientWithTimeout(cfg, cfg.P115Timeout)
+	if err != nil {
+		return err
+	}
+	tmdbClient, err := tmdb.New(cfg.TMDBToken, tmdbHTTPClient)
+	if err != nil {
+		return err
+	}
+	hdhiveClient, err := hdhive.New(cfg.HDHiveBaseURL, cfg.HDHiveSecret, cfg.HDHiveUserID, cfg.HDHiveUserKey, hdhiveHTTPClient)
 	if err != nil {
 		return err
 	}
@@ -80,7 +89,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("create telegram bot: %w", err)
 	}
 	hdhiveAdapter := NewHDHiveAdapter(hdhiveClient, db)
-	transferAdapter := &TransferAdapter{HTTP: httpClient, Logger: logger, HDHive: hdhiveAdapter}
+	transferAdapter := &TransferAdapter{HTTP: p115HTTPClient, Logger: logger, HDHive: hdhiveAdapter}
 	handler, err = telegram.NewHandler(telegram.Services{Users: db, Accounts: db, Logs: db, TMDB: TMDBAdapter{Client: tmdbClient}, HDHive: hdhiveAdapter, Transfer: transferAdapter}, session.New(cfg.SessionTTL, cfg.SessionCapacity), telegram.BotMessenger{Bot: bot, Logger: logger}, cfg.AdminUserIDs)
 	if err != nil {
 		return err
@@ -119,6 +128,10 @@ func newTelegramHTTPClient(cfg config.Config) (*http.Client, error) {
 	return client, nil
 }
 func newHTTPClient(cfg config.Config) (*http.Client, error) {
+	return newHTTPClientWithTimeout(cfg, cfg.HTTPTimeout)
+}
+
+func newHTTPClientWithTimeout(cfg config.Config, timeout time.Duration) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if cfg.HTTPProxyURL != "" {
 		proxy, err := url.Parse(cfg.HTTPProxyURL)
@@ -127,5 +140,5 @@ func newHTTPClient(cfg config.Config) (*http.Client, error) {
 		}
 		transport.Proxy = http.ProxyURL(proxy)
 	}
-	return &http.Client{Transport: transport, Timeout: cfg.HTTPTimeout}, nil
+	return &http.Client{Transport: transport, Timeout: timeout}, nil
 }

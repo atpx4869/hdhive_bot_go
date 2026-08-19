@@ -11,4 +11,6 @@ COPY --from=builder /out/worker /usr/local/bin/worker
 COPY --from=builder /out/migrate /usr/local/bin/migrate
 USER app
 WORKDIR /data
+# 安全加固：只读根文件系统，需要 /data 作为唯一可写目录
+VOLUME ["/data"]
 ENTRYPOINT ["/usr/local/bin/worker"]

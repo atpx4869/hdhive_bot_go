@@ -205,3 +205,123 @@ func TestActivityLogQuery(t *testing.T) {
 		t.Fatal("QueryActivityLogs() accepted an excessive limit")
 	}
 }
+
+func TestConcurrentClaimUnlock(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// 并发 claim 同一个资源
+	const goroutines = 10
+	results := make(chan bool, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			claimed, err := s.ClaimUnlock(ctx, 1, "resource-1")
+			if err != nil {
+				results <- false
+				return
+			}
+			results <- claimed
+		}()
+	}
+
+	// 统计结果
+	claimedCount := 0
+	for i := 0; i < goroutines; i++ {
+		if <-results {
+			claimedCount++
+		}
+	}
+
+	// 只有一个 goroutine 应该成功 claim
+	if claimedCount != 1 {
+		t.Fatalf("expected exactly 1 claim success, got %d", claimedCount)
+	}
+}
+
+func TestClaimUnlock_DifferentResources(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// 不同资源应该都能 claim
+	claimed1, err := s.ClaimUnlock(ctx, 1, "resource-1")
+	if err != nil || !claimed1 {
+		t.Fatalf("first claim failed: claimed=%v, err=%v", claimed1, err)
+	}
+
+	claimed2, err := s.ClaimUnlock(ctx, 1, "resource-2")
+	if err != nil || !claimed2 {
+		t.Fatalf("second claim failed: claimed=%v, err=%v", claimed2, err)
+	}
+}
+
+func TestClaimUnlock_DifferentUsers(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// 不同用户 claim 同一资源应该都能成功
+	claimed1, err := s.ClaimUnlock(ctx, 1, "resource-1")
+	if err != nil || !claimed1 {
+		t.Fatalf("user 1 claim failed: claimed=%v, err=%v", claimed1, err)
+	}
+
+	claimed2, err := s.ClaimUnlock(ctx, 2, "resource-1")
+	if err != nil || !claimed2 {
+		t.Fatalf("user 2 claim failed: claimed=%v, err=%v", claimed2, err)
+	}
+}
+
+func TestClaimUnlock_AlreadyClaimed(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// 第一次 claim
+	claimed1, err := s.ClaimUnlock(ctx, 1, "resource-1")
+	if err != nil || !claimed1 {
+		t.Fatalf("first claim failed: claimed=%v, err=%v", claimed1, err)
+	}
+
+	// 同一用户再次 claim 应该失败
+	claimed2, err := s.ClaimUnlock(ctx, 1, "resource-1")
+	if err != nil {
+		t.Fatalf("second claim error: %v", err)
+	}
+	if claimed2 {
+		t.Fatal("second claim should fail")
+	}
+}
+
+func TestResetUnlockRecord_OnlyUnknown(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// 设置 unknown 状态
+	if err := s.SetUnlockRecord(ctx, UnlockRecord{UserID: 1, ResourceID: "r1", Status: "unknown"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 应该能重置 unknown
+	if err := s.ResetUnlockRecord(ctx, 1, "r1"); err != nil {
+		t.Fatalf("reset unknown failed: %v", err)
+	}
+
+	// 设置 in_flight 状态
+	if err := s.SetUnlockRecord(ctx, UnlockRecord{UserID: 1, ResourceID: "r2", Status: "in_flight"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 不应该能重置 in_flight
+	if err := s.ResetUnlockRecord(ctx, 1, "r2"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("reset in_flight should fail with ErrNotFound, got: %v", err)
+	}
+
+	// 设置 success 状态
+	if err := s.SetUnlockRecord(ctx, UnlockRecord{UserID: 1, ResourceID: "r3", Status: "success", Result: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 不应该能重置 success
+	if err := s.ResetUnlockRecord(ctx, 1, "r3"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("reset success should fail with ErrNotFound, got: %v", err)
+	}
+}

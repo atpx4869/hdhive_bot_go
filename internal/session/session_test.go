@@ -86,3 +86,135 @@ func TestUnlockDuplicateAndStatuses(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanupExpiredUnlocks(t *testing.T) {
+	m := New(time.Minute, 10)
+	now := time.Unix(100, 0)
+	m.now = func() time.Time { return now }
+
+	// 设置 in_flight 状态
+	if err := m.BeginUnlock(1, "r1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.TransitionUnlock(1, "r1", UnlockPending, UnlockInFlight); err != nil {
+		t.Fatal(err)
+	}
+
+	// 设置另一个 in_flight 状态
+	if err := m.BeginUnlock(1, "r2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.TransitionUnlock(1, "r2", UnlockPending, UnlockInFlight); err != nil {
+		t.Fatal(err)
+	}
+
+	// 设置 success 状态（不应该被清理）
+	if err := m.BeginUnlock(1, "r3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.TransitionUnlock(1, "r3", UnlockPending, UnlockInFlight); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetUnlockStatus(1, "r3", UnlockSuccess); err != nil {
+		t.Fatal(err)
+	}
+
+	// 在超时前清理，应该没有变化
+	cleaned := m.CleanupExpiredUnlocks(5 * time.Minute)
+	if len(cleaned) != 0 {
+		t.Fatalf("expected 0 cleaned, got %d", len(cleaned))
+	}
+
+	// 推进时间到超时后（保持 session 活跃）
+	now = now.Add(6 * time.Minute)
+	// 直接更新 session 的 UpdatedAt 以模拟时间流逝
+	m.mu.Lock()
+	if s, ok := m.sessions[1]; ok {
+		s.UpdatedAt = now.Add(-6 * time.Minute)
+		m.sessions[1] = s
+	}
+	m.mu.Unlock()
+
+	// 清理过期的 in_flight
+	cleaned = m.CleanupExpiredUnlocks(5 * time.Minute)
+	if len(cleaned) != 2 {
+		t.Fatalf("expected 2 cleaned, got %d", len(cleaned))
+	}
+
+	// 验证 in_flight 被清理
+	if got := m.UnlockStatus(1, "r1"); got != "" {
+		t.Fatalf("r1 should be cleaned, got %s", got)
+	}
+	if got := m.UnlockStatus(1, "r2"); got != "" {
+		t.Fatalf("r2 should be cleaned, got %s", got)
+	}
+
+	// 验证 success 未被清理
+	if got := m.UnlockStatus(1, "r3"); got != UnlockSuccess {
+		t.Fatalf("r3 should remain success, got %s", got)
+	}
+}
+
+func TestGetUnlockWithTimestamp(t *testing.T) {
+	m := New(time.Minute, 10)
+	now := time.Unix(100, 0)
+	m.now = func() time.Time { return now }
+
+	// 设置解锁状态
+	if err := m.BeginUnlock(1, "r1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 获取状态和时间
+	status, ts, ok := m.GetUnlockWithTimestamp(1, "r1")
+	if !ok {
+		t.Fatal("expected found")
+	}
+	if status != UnlockPending {
+		t.Fatalf("expected pending, got %s", status)
+	}
+	if !ts.Equal(now) {
+		t.Fatalf("expected time %v, got %v", now, ts)
+	}
+
+	// 不存在的记录
+	_, _, ok = m.GetUnlockWithTimestamp(1, "nonexistent")
+	if ok {
+		t.Fatal("expected not found")
+	}
+}
+
+func TestCleanupExpiredUnlocks_MultipleUsers(t *testing.T) {
+	m := New(time.Minute, 10)
+	now := time.Unix(100, 0)
+	m.now = func() time.Time { return now }
+
+	// 用户1的 in_flight
+	if err := m.BeginUnlock(1, "r1"); err != nil {
+		t.Fatal(err)
+	}
+	m.TransitionUnlock(1, "r1", UnlockPending, UnlockInFlight)
+
+	// 用户2的 in_flight
+	if err := m.BeginUnlock(2, "r1"); err != nil {
+		t.Fatal(err)
+	}
+	m.TransitionUnlock(2, "r1", UnlockPending, UnlockInFlight)
+
+	// 推进时间
+	now = now.Add(6 * time.Minute)
+
+	// 清理
+	cleaned := m.CleanupExpiredUnlocks(5 * time.Minute)
+	if len(cleaned) != 2 {
+		t.Fatalf("expected 2 cleaned, got %d", len(cleaned))
+	}
+
+	// 验证两个用户的状态都被清理
+	if got := m.UnlockStatus(1, "r1"); got != "" {
+		t.Fatalf("user 1 r1 should be cleaned, got %s", got)
+	}
+	if got := m.UnlockStatus(2, "r1"); got != "" {
+		t.Fatalf("user 2 r1 should be cleaned, got %s", got)
+	}
+}

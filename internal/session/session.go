@@ -221,6 +221,62 @@ func (m *Manager) ResetUnlock(userID int64, key string) {
 	m.sessions[userID] = s
 }
 
+// CleanupExpiredUnlocks 清理过期的 in_flight 状态
+// 返回被清理的 (userID, key) 列表
+func (m *Manager) CleanupExpiredUnlocks(maxInFlightDuration time.Duration) []struct {
+	UserID int64
+	Key    string
+} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// 不调用 cleanupLocked()，因为我们需要检查可能已过期的 session 中的 unlock 状态
+
+	var cleaned []struct {
+		UserID int64
+		Key    string
+	}
+	now := m.now()
+	for userID, s := range m.sessions {
+		if s.Unlocks == nil {
+			continue
+		}
+		for key, status := range s.Unlocks {
+			// 只清理 in_flight 状态，且超过最大持续时间
+			if status == UnlockInFlight && now.Sub(s.UpdatedAt) > maxInFlightDuration {
+				delete(s.Unlocks, key)
+				cleaned = append(cleaned, struct {
+					UserID int64
+					Key    string
+				}{userID, key})
+			}
+		}
+		if len(s.Unlocks) == 0 {
+			s.Unlocks = nil
+		}
+		// 更新 session 时间以保持活跃
+		s.UpdatedAt = now
+		s.ExpiresAt = now.Add(m.ttl)
+		m.sessions[userID] = s
+	}
+	return cleaned
+}
+
+// GetUnlockWithTimestamp 获取解锁状态及其更新时间
+func (m *Manager) GetUnlockWithTimestamp(userID int64, key string) (UnlockStatus, time.Time, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupLocked()
+	s, ok := m.sessions[userID]
+	if !ok || s.Unlocks == nil {
+		return "", time.Time{}, false
+	}
+	status, exists := s.Unlocks[key]
+	if !exists {
+		return "", time.Time{}, false
+	}
+	return status, s.UpdatedAt, true
+}
+
 func (m *Manager) UnlockStatus(userID int64, key string) UnlockStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()

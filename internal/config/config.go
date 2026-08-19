@@ -36,6 +36,9 @@ type Config struct {
 	EncryptionKey   []byte
 	HTTPProxyURL    string
 	HTTPTimeout     time.Duration
+	TMDBTimeout     time.Duration
+	HDHiveTimeout   time.Duration
+	P115Timeout     time.Duration
 	SessionTTL      time.Duration
 	SessionCapacity int
 }
@@ -89,6 +92,15 @@ func Load() (Config, error) {
 		}
 	}
 	if cfg.HTTPTimeout, err = durationEnv("HTTP_TIMEOUT", 30*time.Second); err != nil {
+		return cfg, err
+	}
+	if cfg.TMDBTimeout, err = durationEnv("TMDB_TIMEOUT", cfg.HTTPTimeout); err != nil {
+		return cfg, err
+	}
+	if cfg.HDHiveTimeout, err = durationEnv("HDHIVE_TIMEOUT", cfg.HTTPTimeout); err != nil {
+		return cfg, err
+	}
+	if cfg.P115Timeout, err = durationEnv("P115_TIMEOUT", cfg.HTTPTimeout); err != nil {
 		return cfg, err
 	}
 	if cfg.SessionTTL, err = durationEnv("SESSION_TTL", 30*time.Minute); err != nil {

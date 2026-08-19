@@ -144,7 +144,13 @@ func (a *HDHiveAdapter) Unlock(ctx context.Context, userID int64, id string) (te
 	result, err := a.Client.Unlock(ctx, r.UnlockSlug)
 	if err != nil {
 		if a.Store != nil {
-			_ = a.Store.SetUnlockRecord(ctx, store.UnlockRecord{UserID: userID, ResourceID: id, Status: "unknown"})
+			// 区分业务拒绝和网络不确定错误
+			status := "unknown"
+			var apiErr *hdhive.APIError
+			if errors.As(err, &apiErr) && apiErr.Business {
+				status = "rejected"
+			}
+			_ = a.Store.SetUnlockRecord(ctx, store.UnlockRecord{UserID: userID, ResourceID: id, Status: status})
 		}
 		return telegram.Resource{}, err
 	}
@@ -193,8 +199,33 @@ func resourceFromMap(m map[string]any, tmdbID int64, index int) telegram.Resourc
 		id = fmt.Sprintf("%d-%d", tmdbID, index)
 	}
 	fee, feeKnown := integer(m, "fee", "price", "cost", "points", "coin")
-	r := telegram.Resource{ID: id, UnlockSlug: id, Title: defaultString(first(m, "title", "name", "resource_name"), "未命名资源"), Quality: first(m, "quality", "resolution", "video_quality"), Size: first(m, "size", "file_size"), Description: first(m, "description", "remark", "note"), Fee: fee, FeeKnown: feeKnown, Unlocked: boolean(m, "unlocked", "is_unlocked")}
+	subtitle := joinValues(m, "subtitle_language", "subtitle_type")
+	source := joinValues(m, "source")
+	r := telegram.Resource{ID: id, UnlockSlug: id, Title: defaultString(first(m, "title", "name", "resource_name"), "未命名资源"), Quality: first(m, "quality", "resolution", "video_quality"), Size: first(m, "size", "file_size"), Description: first(m, "description", "remark", "note"), Subtitle: subtitle, Source: source, Fee: fee, FeeKnown: feeKnown, Unlocked: boolean(m, "unlocked", "is_unlocked")}
 	return r
+}
+
+func joinValues(m map[string]any, keys ...string) string {
+	var parts []string
+	for _, k := range keys {
+		v, ok := m[k]
+		if !ok || v == nil {
+			continue
+		}
+		switch val := v.(type) {
+		case []any:
+			for _, item := range val {
+				if s := strings.TrimSpace(fmt.Sprint(item)); s != "" {
+					parts = append(parts, s)
+				}
+			}
+		case string:
+			if s := strings.TrimSpace(val); s != "" {
+				parts = append(parts, s)
+			}
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 func first(m map[string]any, keys ...string) string {
 	for _, k := range keys {

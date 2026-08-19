@@ -277,11 +277,12 @@ type transferCall struct {
 
 // TransferAdapter implements telegram.TransferService without exposing p115 details to handlers.
 type TransferAdapter struct {
-	HTTP   p115.HTTPDoer
-	Logger p115.Logger
-	HDHive *HDHiveAdapter
-	mu     sync.Mutex
-	calls  map[string]*transferCall
+	HTTP      p115.HTTPDoer
+	Logger    p115.Logger
+	HDHive    *HDHiveAdapter
+	UserAgent string
+	mu        sync.Mutex
+	calls     map[string]*transferCall
 }
 
 func (a *TransferAdapter) Transfer115(ctx context.Context, userID int64, cfg store.P115Config, r telegram.Resource) (string, error) {
@@ -325,7 +326,7 @@ func (a *TransferAdapter) transfer115(ctx context.Context, userID int64, cfg sto
 	if !cfg.Enabled {
 		return "", errors.New("115 account is disabled")
 	}
-	client, err := p115.New(cfg.Cookie, a.HTTP, a.Logger)
+	client, err := p115.New(cfg.Cookie, a.HTTP, a.Logger, a.UserAgent)
 	if err != nil {
 		return "", err
 	}

@@ -39,6 +39,8 @@ type Config struct {
 	TMDBTimeout     time.Duration
 	HDHiveTimeout   time.Duration
 	P115Timeout     time.Duration
+	P115UserAgent   string
+	P115Endpoint    string
 	SessionTTL      time.Duration
 	SessionCapacity int
 }
@@ -102,6 +104,14 @@ func Load() (Config, error) {
 	}
 	if cfg.P115Timeout, err = durationEnv("P115_TIMEOUT", cfg.HTTPTimeout); err != nil {
 		return cfg, err
+	}
+	cfg.P115UserAgent = strings.TrimSpace(os.Getenv("P115_USER_AGENT"))
+	if cfg.P115UserAgent == "" {
+		cfg.P115UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+	}
+	cfg.P115Endpoint = strings.TrimSpace(os.Getenv("P115_ENDPOINT"))
+	if cfg.P115Endpoint == "" {
+		cfg.P115Endpoint = "https://proapi.115.com"
 	}
 	if cfg.SessionTTL, err = durationEnv("SESSION_TTL", 30*time.Minute); err != nil {
 		return cfg, err

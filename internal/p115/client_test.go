@@ -65,7 +65,7 @@ func TestListPaginationRootAndReceiveStrategies(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	c, _ := NewWithBaseURL(srv.URL, "UID=secret-cookie", srv.Client(), nil)
+	c, _ := NewWithBaseURL(srv.URL, "UID=secret-cookie", srv.Client(), nil, "")
 	files, err := c.ListShare(context.Background(), Share{ShareCode: "share", ReceiveCode: "pwd"})
 	if err != nil || len(files) != 101 {
 		t.Fatalf("len=%d err=%v", len(files), err)
@@ -96,7 +96,7 @@ func TestErrorClassificationAndRedactedLogs(t *testing.T) {
 		_, _ = w.Write([]byte(`{"state":false,"errno":4200045,"error":"已接收"}`))
 	}))
 	defer srv.Close()
-	c, _ := NewWithBaseURL(srv.URL, "SUPER-SECRET-COOKIE", srv.Client(), logger)
+	c, _ := NewWithBaseURL(srv.URL, "SUPER-SECRET-COOKIE", srv.Client(), logger, "")
 	res, err := c.Receive(context.Background(), Share{ShareCode: "verysecretshare", ReceiveCode: "secretpwd"}, ReceiveOptions{Strategy: StrategyWholeShare})
 	if err != nil || !res.Already {
 		t.Fatalf("res=%#v err=%v", res, err)

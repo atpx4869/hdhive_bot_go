@@ -50,5 +50,16 @@ func main() {
 		fail(err)
 	}
 	fmt.Printf("迁移完成：users=%d p115_accounts=%d\n", result.Users, result.Accounts)
+
+	// 安全警告
+	fmt.Println("\n⚠️  安全提示：")
+	if *users != "" {
+		fmt.Printf("  请安全删除旧用户文件: %s\n", *users)
+	}
+	if *p115 != "" {
+		fmt.Printf("  请安全删除旧 115 配置文件: %s\n", *p115)
+	}
+	fmt.Println("  这些文件包含明文敏感数据，迁移后应立即删除。")
+	fmt.Println("  建议使用: shred -u <file> 或手动删除并清空回收站。")
 }
 func fail(err error) { fmt.Fprintln(os.Stderr, err); os.Exit(1) }

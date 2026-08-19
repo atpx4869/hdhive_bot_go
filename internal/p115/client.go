@@ -77,6 +77,7 @@ type ReceiveResult struct {
 
 type Client struct {
 	baseURL, cookie    string
+	userAgent          string
 	http               HTTPDoer
 	logger             Logger
 	pageSize, maxDepth int
@@ -115,10 +116,10 @@ func ParseShare(text string) (Share, error) {
 	return Share{}, &Error{Kind: KindInvalidShare, Message: "unrecognized share link"}
 }
 
-func New(cookie string, doer HTTPDoer, logger Logger) (*Client, error) {
-	return NewWithBaseURL(defaultBaseURL, cookie, doer, logger)
+func New(cookie string, doer HTTPDoer, logger Logger, userAgent string) (*Client, error) {
+	return NewWithBaseURL(defaultBaseURL, cookie, doer, logger, userAgent)
 }
-func NewWithBaseURL(baseURL, cookie string, doer HTTPDoer, logger Logger) (*Client, error) {
+func NewWithBaseURL(baseURL, cookie string, doer HTTPDoer, logger Logger, userAgent string) (*Client, error) {
 	cookie = strings.TrimSpace(cookie)
 	if cookie == "" {
 		return nil, &Error{Kind: KindAuth, Message: "cookie is empty"}
@@ -126,7 +127,10 @@ func NewWithBaseURL(baseURL, cookie string, doer HTTPDoer, logger Logger) (*Clie
 	if doer == nil {
 		doer = http.DefaultClient
 	}
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), cookie: cookie, http: doer, logger: logger, pageSize: 100, maxDepth: 4}, nil
+	if userAgent == "" {
+		userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+	}
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), cookie: cookie, userAgent: userAgent, http: doer, logger: logger, pageSize: 100, maxDepth: 4}, nil
 }
 
 func (c *Client) ListShare(ctx context.Context, share Share) ([]Item, error) {
@@ -272,7 +276,7 @@ func (c *Client) call(ctx context.Context, method, path string, values url.Value
 		return nil, err
 	}
 	req.Header.Set("Cookie", c.cookie)
-	req.Header.Set("User-Agent", "Mozilla/5.0")
+	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

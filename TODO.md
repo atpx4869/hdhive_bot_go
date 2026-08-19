@@ -59,14 +59,14 @@
 - [ ] 所有收费或费用未知资源必须经过确认；免费资源也建议显示明确提示。
 - [ ] 解锁成功后提供“转存到 115”“返回资源列表”“新搜索”快捷按钮。
 - [ ] 转存失败时根据错误类型提供“重新配置 115”“重试”“换线路”等操作。
-- [ ] `/users` 和 `/logs` 增加分页、过滤和 Callback owner 校验测试。
+- [x] `/users` 和 `/logs` 增加分页、过滤和 Callback owner 校验测试。
 - [x] `/set115` 改为分步交互：先 Cookie，再填写目标目录 cid；支持 `/cancel` 退出。
 - [x] 增加 `/cancel`，用于退出 `/set115` 等交互状态。
 - [x] `/unset115` 增加管理员保护、普通用户二次确认、配置版本校验和 `enabled=false` 软删除。
 
 ## P2：数据和运维
 
-- [ ] 为活动日志增加 `status`、`media_title`、`resource_title`、`error_code` 等结构化字段，减少当前 `detail` 自由文本。
+- [x] 为活动日志增加 `status`、`media_title`、`resource_title`、`error_code` 等结构化字段，减少当前 `detail` 自由文本。
 - [ ] 增加活动日志保留天数和最大数据库体积清理任务。
 - [ ] 增加 SQLite WAL 模式和 busy timeout 的评估与测试。
 - [ ] 增加数据库备份、恢复和完整性检查文档。

@@ -1,0 +1,47 @@
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hdhive-bot-go
+    restart: unless-stopped
+    env_file:
+      - config.env
+    environment:
+      - HTTP_PROXY_URL=http://192.168.5.3:7893
+      - HTTPS_PROXY=http://192.168.5.3:7893
+    volumes:
+      - ./data:/data
+    networks:
+      - hdhive-net
+    # 安全加固
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 64M
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "pgrep", "-x", "worker"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  hdhive-net:
+    driver: bridge

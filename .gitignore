@@ -3,3 +3,23 @@ config.env
 *.db-*
 telegram_users.json
 telegram_p115.json
+
+# 编译产物
+*.exe
+worker
+migrate
+export
+check
+
+# 数据目录
+data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

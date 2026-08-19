@@ -32,7 +32,7 @@ type UnlockAdminService interface {
 }
 
 type LogService interface {
-	AddActivityLog(context.Context, int64, string, string) (store.ActivityLog, error)
+	AddActivityLog(context.Context, int64, string, string, ...store.ActivityLogOption) (store.ActivityLog, error)
 	QueryActivityLogs(context.Context, store.ActivityQuery) ([]store.ActivityLog, error)
 }
 
@@ -413,6 +413,8 @@ func (h *Handler) search(ctx context.Context, userID, chatID int64, query string
 	if len(items) == 0 {
 		return h.send(ctx, chatID, "未找到 TMDB 结果。")
 	}
+	// 保存搜索上下文用于分页
+	h.sessions.SetSearchContext(userID, query, page)
 	out := Outgoing{Text: FormatTMDB(items, page, total)}
 	for _, item := range items {
 		value := encodeTMDB(item)
@@ -426,6 +428,22 @@ func (h *Handler) search(ctx context.Context, userID, chatID int64, query string
 		}
 		out.Buttons = append(out.Buttons, []Button{{Text: btnText, CallbackData: token}})
 	}
+	// 添加分页按钮
+	var navButtons []Button
+	if page > 1 {
+		prevToken, _ := h.sessions.BindCallback(userID, "search_page", fmt.Sprintf("%d", page-1))
+		navButtons = append(navButtons, Button{Text: "⬅️ 上一页", CallbackData: prevToken})
+	}
+	if page < total {
+		nextToken, _ := h.sessions.BindCallback(userID, "search_page", fmt.Sprintf("%d", page+1))
+		navButtons = append(navButtons, Button{Text: "下一页 ➡️", CallbackData: nextToken})
+	}
+	if len(navButtons) > 0 {
+		out.Buttons = append(out.Buttons, navButtons)
+	}
+	// 添加重新搜索按钮
+	retryToken, _ := h.sessions.BindCallback(userID, "search_retry", query)
+	out.Buttons = append(out.Buttons, []Button{{Text: "🔄 重新搜索", CallbackData: retryToken}})
 	return h.messenger.Send(ctx, chatID, out)
 }
 
@@ -490,6 +508,16 @@ func (h *Handler) HandleCallback(ctx context.Context, userID, chatID int64, call
 		page := 1
 		fmt.Sscanf(cb.Value, "%d", &page)
 		return h.handleAdmin(ctx, userID, chatID, "/logs", fmt.Sprintf("%d", page))
+	case "search_page":
+		page := 1
+		fmt.Sscanf(cb.Value, "%d", &page)
+		ctx2, ok := h.sessions.GetSearchContext(userID)
+		if !ok {
+			return h.send(ctx, chatID, "搜索已过期，请重新搜索。")
+		}
+		return h.search(ctx, userID, chatID, ctx2.Query, page)
+	case "search_retry":
+		return h.search(ctx, userID, chatID, cb.Value, 1)
 	}
 	return nil
 }
@@ -620,9 +648,9 @@ func (h *Handler) transfer(ctx context.Context, userID, chatID int64, id string)
 	return h.send(ctx, chatID, "115 转存成功："+result)
 }
 
-func (h *Handler) log(ctx context.Context, id int64, action, detail string) {
+func (h *Handler) log(ctx context.Context, id int64, action, detail string, opts ...store.ActivityLogOption) {
 	if h.services.Logs != nil {
-		_, _ = h.services.Logs.AddActivityLog(ctx, id, action, detail)
+		_, _ = h.services.Logs.AddActivityLog(ctx, id, action, detail, opts...)
 	}
 }
 func (h *Handler) send(ctx context.Context, chatID int64, text string) error {

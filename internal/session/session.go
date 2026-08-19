@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -321,4 +322,47 @@ func cloneUnlocks(in map[string]UnlockStatus) map[string]UnlockStatus {
 		out[k] = v
 	}
 	return out
+}
+
+// SearchContext 保存搜索上下文用于分页
+type SearchContext struct {
+	Query string
+	Page  int
+}
+
+// SetSearchContext 保存用户的搜索上下文
+func (m *Manager) SetSearchContext(userID int64, query string, page int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[userID]
+	if !ok {
+		s = State{UserID: userID, CreatedAt: m.now(), Data: make(map[string]string)}
+	}
+	if s.Data == nil {
+		s.Data = make(map[string]string)
+	}
+	s.Data["search_query"] = query
+	s.Data["search_page"] = fmt.Sprintf("%d", page)
+	now := m.now()
+	s.UpdatedAt, s.ExpiresAt = now, now.Add(m.ttl)
+	m.sessions[userID] = s
+}
+
+// GetSearchContext 获取用户的搜索上下文
+func (m *Manager) GetSearchContext(userID int64) (SearchContext, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupLocked()
+	s, ok := m.sessions[userID]
+	if !ok || s.Data == nil {
+		return SearchContext{}, false
+	}
+	query, hasQuery := s.Data["search_query"]
+	pageStr, hasPage := s.Data["search_page"]
+	if !hasQuery || !hasPage {
+		return SearchContext{}, false
+	}
+	page := 1
+	fmt.Sscanf(pageStr, "%d", &page)
+	return SearchContext{Query: query, Page: page}, true
 }

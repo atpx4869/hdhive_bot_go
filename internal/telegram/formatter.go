@@ -148,9 +148,22 @@ func FormatLogsPage(logs []store.ActivityLog, page int, hasMore bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "📋 <b>最近活动</b>（第 %d 页）\n\n", page)
 	for _, l := range logs {
-		fmt.Fprintf(&b, "• %s｜<code>%d</code>｜%s\n", l.CreatedAt.Local().Format("01-02 15:04"), l.UserID, l.Action)
+		fmt.Fprintf(&b, "• %s｜<code>%d</code>｜%s", l.CreatedAt.Local().Format("01-02 15:04"), l.UserID, l.Action)
+		if l.Status != "" {
+			fmt.Fprintf(&b, "｜%s", l.Status)
+		}
+		b.WriteByte('\n')
+		if l.MediaTitle != "" {
+			fmt.Fprintf(&b, "  影视：%s\n", l.MediaTitle)
+		}
+		if l.ResourceTitle != "" {
+			fmt.Fprintf(&b, "  资源：%s\n", l.ResourceTitle)
+		}
 		if l.Detail != "" {
 			fmt.Fprintf(&b, "  %s\n", l.Detail)
+		}
+		if l.ErrorCode != "" {
+			fmt.Fprintf(&b, "  错误：%s\n", l.ErrorCode)
 		}
 	}
 	if hasMore {

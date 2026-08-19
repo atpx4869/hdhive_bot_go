@@ -53,16 +53,21 @@ type UnlockRecord struct {
 }
 
 type ActivityLog struct {
-	ID        int64
-	UserID    int64
-	Action    string
-	Detail    string
-	CreatedAt time.Time
+	ID            int64
+	UserID        int64
+	Action        string
+	Detail        string
+	Status        string
+	MediaTitle    string
+	ResourceTitle string
+	ErrorCode     string
+	CreatedAt     time.Time
 }
 
 type ActivityQuery struct {
 	UserID *int64
 	Action string
+	Status string
 	Since  *time.Time
 	Until  *time.Time
 	Limit  int
@@ -168,6 +173,10 @@ CREATE INDEX IF NOT EXISTS idx_activity_logs_action_created ON activity_logs(act
 	for _, statement := range []string{
 		`ALTER TABLE p115_accounts ADD COLUMN target_cid TEXT NOT NULL DEFAULT '0'`,
 		`ALTER TABLE p115_accounts ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1))`,
+		`ALTER TABLE activity_logs ADD COLUMN status TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE activity_logs ADD COLUMN media_title TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE activity_logs ADD COLUMN resource_title TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE activity_logs ADD COLUMN error_code TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := tx.ExecContext(ctx, statement); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 			return fmt.Errorf("migrate sqlite schema: %w", err)
@@ -420,15 +429,20 @@ func (s *Store) SetUnlockRecord(ctx context.Context, record UnlockRecord) error 
 	return nil
 }
 
-func (s *Store) AddActivityLog(ctx context.Context, userID int64, action, detail string) (ActivityLog, error) {
+func (s *Store) AddActivityLog(ctx context.Context, userID int64, action, detail string, opts ...ActivityLogOption) (ActivityLog, error) {
 	if userID <= 0 {
 		return ActivityLog{}, errors.New("userID must be positive")
 	}
 	if action == "" {
 		return ActivityLog{}, errors.New("action is required")
 	}
+	opt := ActivityLogOptions{}
+	for _, o := range opts {
+		o(&opt)
+	}
 	now := s.nowUTC()
-	result, err := s.db.ExecContext(ctx, `INSERT INTO activity_logs(user_id, action, detail, created_at) VALUES(?, ?, ?, ?)`, userID, action, detail, now.UnixMilli())
+	result, err := s.db.ExecContext(ctx, `INSERT INTO activity_logs(user_id, action, detail, status, media_title, resource_title, error_code, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, action, detail, opt.Status, opt.MediaTitle, opt.ResourceTitle, opt.ErrorCode, now.UnixMilli())
 	if err != nil {
 		return ActivityLog{}, fmt.Errorf("add activity log: %w", err)
 	}
@@ -436,7 +450,48 @@ func (s *Store) AddActivityLog(ctx context.Context, userID int64, action, detail
 	if err != nil {
 		return ActivityLog{}, fmt.Errorf("activity log ID: %w", err)
 	}
-	return ActivityLog{ID: id, UserID: userID, Action: action, Detail: detail, CreatedAt: now}, nil
+	return ActivityLog{
+		ID:            id,
+		UserID:        userID,
+		Action:        action,
+		Detail:        detail,
+		Status:        opt.Status,
+		MediaTitle:    opt.MediaTitle,
+		ResourceTitle: opt.ResourceTitle,
+		ErrorCode:     opt.ErrorCode,
+		CreatedAt:     now,
+	}, nil
+}
+
+// ActivityLogOptions 活动日志选项
+type ActivityLogOptions struct {
+	Status        string
+	MediaTitle    string
+	ResourceTitle string
+	ErrorCode     string
+}
+
+// ActivityLogOption 活动日志选项函数
+type ActivityLogOption func(*ActivityLogOptions)
+
+// WithStatus 设置状态
+func WithStatus(status string) ActivityLogOption {
+	return func(o *ActivityLogOptions) { o.Status = status }
+}
+
+// WithMediaTitle 设置媒体标题
+func WithMediaTitle(title string) ActivityLogOption {
+	return func(o *ActivityLogOptions) { o.MediaTitle = title }
+}
+
+// WithResourceTitle 设置资源标题
+func WithResourceTitle(title string) ActivityLogOption {
+	return func(o *ActivityLogOptions) { o.ResourceTitle = title }
+}
+
+// WithErrorCode 设置错误码
+func WithErrorCode(code string) ActivityLogOption {
+	return func(o *ActivityLogOptions) { o.ErrorCode = code }
 }
 
 func (s *Store) QueryActivityLogs(ctx context.Context, q ActivityQuery) ([]ActivityLog, error) {
@@ -447,8 +502,8 @@ func (s *Store) QueryActivityLogs(ctx context.Context, q ActivityQuery) ([]Activ
 	if limit == 0 {
 		limit = 100
 	}
-	query := `SELECT id, user_id, action, detail, created_at FROM activity_logs WHERE 1=1`
-	args := make([]any, 0, 6)
+	query := `SELECT id, user_id, action, detail, status, media_title, resource_title, error_code, created_at FROM activity_logs WHERE 1=1`
+	args := make([]any, 0, 8)
 	if q.UserID != nil {
 		query += ` AND user_id = ?`
 		args = append(args, *q.UserID)
@@ -456,6 +511,10 @@ func (s *Store) QueryActivityLogs(ctx context.Context, q ActivityQuery) ([]Activ
 	if q.Action != "" {
 		query += ` AND action = ?`
 		args = append(args, q.Action)
+	}
+	if q.Status != "" {
+		query += ` AND status = ?`
+		args = append(args, q.Status)
 	}
 	if q.Since != nil {
 		query += ` AND created_at >= ?`
@@ -478,7 +537,7 @@ func (s *Store) QueryActivityLogs(ctx context.Context, q ActivityQuery) ([]Activ
 	for rows.Next() {
 		var log ActivityLog
 		var createdAt int64
-		if err := rows.Scan(&log.ID, &log.UserID, &log.Action, &log.Detail, &createdAt); err != nil {
+		if err := rows.Scan(&log.ID, &log.UserID, &log.Action, &log.Detail, &log.Status, &log.MediaTitle, &log.ResourceTitle, &log.ErrorCode, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan activity log: %w", err)
 		}
 		log.CreatedAt = time.UnixMilli(createdAt).UTC()

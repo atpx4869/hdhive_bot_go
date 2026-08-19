@@ -80,7 +80,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 	bot, err := gbot.New(cfg.TelegramToken,
-		gbot.WithHTTPClient(time.Minute, botHTTPClient),
+		gbot.WithHTTPClient(3*time.Minute, botHTTPClient),  // 增加到 3 分钟
 		gbot.WithAllowedUpdates(gbot.AllowedUpdates{"message", "callback_query"}),
 		gbot.WithErrorsHandler(func(err error) {
 			logger.Warn("telegram polling error (will retry)", "error", err)
@@ -101,7 +101,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	setupCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	setupCtx, cancel := context.WithTimeout(ctx, 60*time.Second)  // 增加到 60 秒
 	defer cancel()
 	if _, err := bot.DeleteWebhook(setupCtx, &gbot.DeleteWebhookParams{DropPendingUpdates: true}); err != nil {
 		return fmt.Errorf("delete telegram webhook: %w", err)

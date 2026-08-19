@@ -75,7 +75,7 @@ cd /volume1/docker/hdhive-bot-go
 TELEGRAM_BOT_TOKEN=你的Bot Token
 TELEGRAM_ADMIN_USER_IDS=你的Telegram用户ID
 TMDB_TOKEN=你的TMDB Token
-HDHIVE_BASE_URL=https://hdhive.symedia.top
+HDHIVE_BASE_URL=https://你的HDHive代理地址
 HDHIVE_SECRET=你的HDHive密钥
 HDHIVE_USER_ID=你的HDHive用户ID
 HDHIVE_USER_KEY=你的HDHive访问密钥

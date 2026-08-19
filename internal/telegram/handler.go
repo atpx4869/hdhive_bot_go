@@ -2,9 +2,11 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/atpx4869/hdhive_bot_go/internal/hdhive"
@@ -89,6 +91,7 @@ type Messenger interface {
 	Send(context.Context, int64, Outgoing) error
 	AnswerCallback(context.Context, string, string) error
 	DeleteMessage(context.Context, int64, int) error
+	SendDocument(ctx context.Context, chatID int64, filename string, data []byte, caption string) error
 }
 
 type Handler struct {
@@ -159,7 +162,7 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 		return h.send(ctx, chatID, StatusPanel(userID, h.isAdmin(userID), h.authorized(ctx, userID), p115Enabled, p115Target))
 	case "/myid":
 		return h.send(ctx, chatID, fmt.Sprintf("你的 Telegram User ID：%d", userID))
-	case "/authorize", "/revoke", "/users", "/note", "/logs", "/unlockreset", "/enable115", "/disable115", "/unknown":
+	case "/authorize", "/revoke", "/users", "/note", "/logs", "/unlockreset", "/enable115", "/disable115", "/unknown", "/export", "/import":
 		if !h.isAdmin(userID) {
 			return h.send(ctx, chatID, "无权限：仅管理员可使用此命令。")
 		}
@@ -405,8 +408,80 @@ func (h *Handler) handleAdmin(ctx context.Context, actor, chatID int64, cmd, arg
 		}
 		b.WriteString("\n使用 /unlockreset &lt;user_id&gt; &lt;resource_id&gt; 解除")
 		return h.send(ctx, chatID, b.String())
+	case "/export":
+		return h.exportData(ctx, actor, chatID)
+	case "/import":
+		return h.send(ctx, chatID, "请发送 JSON 文件进行导入。支持从 Python 版本导出的数据。")
 	}
 	return nil
+}
+
+func (h *Handler) exportData(ctx context.Context, userID, chatID int64) error {
+	if h.services.Users == nil || h.services.Logs == nil {
+		return h.send(ctx, chatID, "导出服务未配置。")
+	}
+
+	// 获取所有用户
+	users, err := h.services.Users.ListUsers(ctx, 10000, 0)
+	if err != nil {
+		return h.send(ctx, chatID, fmt.Sprintf("获取用户失败：%s", err.Error()))
+	}
+
+	// 构建导出数据
+	export := map[string]any{
+		"exported_at": time.Now().UTC().Format(time.RFC3339),
+		"version":     "1.0",
+		"source":      "hdhive_bot_go",
+	}
+
+	// 用户数据
+	userData := make([]map[string]any, 0, len(users))
+	for _, u := range users {
+		userData = append(userData, map[string]any{
+			"id":         u.ID,
+			"authorized": u.Authorized,
+			"note":       u.Note,
+			"is_admin":   h.isAdmin(u.ID),
+		})
+	}
+	export["users"] = userData
+
+	// 活动日志
+	logs, err := h.services.Logs.QueryActivityLogs(ctx, store.ActivityQuery{Limit: 1000})
+	if err == nil {
+		logData := make([]map[string]any, 0, len(logs))
+		for _, l := range logs {
+			logData = append(logData, map[string]any{
+				"timestamp":      l.CreatedAt.Format(time.RFC3339),
+				"user_id":        l.UserID,
+				"action":         l.Action,
+				"status":         l.Status,
+				"media_title":    l.MediaTitle,
+				"resource_title": l.ResourceTitle,
+				"detail":         l.Detail,
+			})
+		}
+		export["activity_logs"] = logData
+	}
+
+	// 统计信息
+	stats := map[string]any{
+		"total_users": len(users),
+		"admin_count": len(h.admins),
+	}
+	export["stats"] = stats
+
+	// 转换为 JSON
+	jsonData, err := json.MarshalIndent(export, "", "  ")
+	if err != nil {
+		return h.send(ctx, chatID, fmt.Sprintf("序列化失败：%s", err.Error()))
+	}
+
+	// 发送文件
+	filename := fmt.Sprintf("hdhive_export_%s.json", time.Now().Format("20060102_150405"))
+	caption := fmt.Sprintf("📊 数据导出完成\n\n• 用户：%d 人\n• 活动日志：%d 条", len(userData), len(logs))
+
+	return h.messenger.SendDocument(ctx, chatID, filename, jsonData, caption)
 }
 
 func normalize115Cookie(cookie string) string {

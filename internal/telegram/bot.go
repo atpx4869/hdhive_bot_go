@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -42,6 +43,19 @@ func (m BotMessenger) DeleteMessage(ctx context.Context, chatID int64, messageID
 		return fmt.Errorf("message ID is required")
 	}
 	_, err := m.Bot.DeleteMessage(ctx, &gbot.DeleteMessageParams{ChatID: chatID, MessageID: messageID})
+	return err
+}
+
+func (m BotMessenger) SendDocument(ctx context.Context, chatID int64, filename string, data []byte, caption string) error {
+	params := &gbot.SendDocumentParams{
+		ChatID: chatID,
+		Document: &models.InputFileUpload{
+			Filename: filename,
+			Data:     bytes.NewReader(data),
+		},
+		Caption: caption,
+	}
+	_, err := m.Bot.SendDocument(ctx, params)
 	return err
 }
 

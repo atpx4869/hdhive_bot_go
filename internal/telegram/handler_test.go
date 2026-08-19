@@ -18,6 +18,11 @@ type fakeMessenger struct {
 	deletedChat int64
 	deletedID   int
 	deleteErr   error
+	documents   []struct {
+		filename string
+		data     []byte
+		caption  string
+	}
 }
 
 func (f *fakeMessenger) Send(_ context.Context, _ int64, o Outgoing) error {
@@ -31,6 +36,14 @@ func (f *fakeMessenger) AnswerCallback(_ context.Context, _ string, text string)
 func (f *fakeMessenger) DeleteMessage(_ context.Context, chatID int64, messageID int) error {
 	f.deletedChat, f.deletedID = chatID, messageID
 	return f.deleteErr
+}
+func (f *fakeMessenger) SendDocument(_ context.Context, _ int64, filename string, data []byte, caption string) error {
+	f.documents = append(f.documents, struct {
+		filename string
+		data     []byte
+		caption  string
+	}{filename, data, caption})
+	return nil
 }
 
 type fakeUsers struct{ users map[int64]store.User }

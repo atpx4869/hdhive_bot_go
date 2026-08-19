@@ -413,7 +413,7 @@ func (h *Handler) handleAdmin(ctx context.Context, actor, chatID int64, cmd, arg
 	case "/import":
 		// 设置会话状态，等待用户发送文件
 		h.sessions.SetImportMode(actor)
-		return h.send(ctx, chatID, "📥 请发送 JSON 文件进行导入。\n\n支持格式：\n• Go 版本导出的数据\n• Python 版本导出的数据（用户信息）\n\n⚠️ 注意：115 Cookie 已脱敏，无法导入。")
+		return h.send(ctx, chatID, "📥 请发送 JSON 文件进行导入。\n\n支持格式：\n• Go 版本导出的数据\n• Python 版本导出的数据\n\n可导入内容：\n• 用户列表（授权状态、备注）\n• 115 配置（Cookie、目标目录）")
 	}
 	return nil
 }
@@ -493,6 +493,47 @@ func (h *Handler) HandleDocument(ctx context.Context, userID, chatID int64, file
 					h.services.Users.SetUserNote(ctx, int64(uid), note)
 				}
 				imported++
+			}
+		}
+	}
+
+	// 导入 115 配置
+	if accounts, ok := data["p115_accounts"]; ok {
+		if accMap, ok := accounts.(map[string]any); ok {
+			for uidStr, accData := range accMap {
+				var uid int64
+				fmt.Sscanf(uidStr, "%d", &uid)
+				if uid <= 0 {
+					continue
+				}
+				accMap, ok := accData.(map[string]any)
+				if !ok {
+					continue
+				}
+				cookie, _ := accMap["cookie"].(string)
+				targetCID, _ := accMap["target_cid"].(string)
+				enabled, _ := accMap["enabled"].(bool)
+
+				if cookie == "" {
+					continue
+				}
+
+				// 检查是否是脱敏的 Cookie
+				if strings.Contains(cookie, "=***") {
+					skipped++
+					continue
+				}
+
+				if h.services.Accounts != nil {
+					if err := h.services.Accounts.SetP115Config(ctx, uid, store.P115Config{
+						Cookie:    cookie,
+						TargetCID: targetCID,
+						Enabled:   enabled,
+					}); err != nil {
+						errors = append(errors, fmt.Sprintf("115 配置 %d: %v", uid, err))
+						continue
+					}
+				}
 			}
 		}
 	}

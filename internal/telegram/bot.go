@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
+	"strings"
 
 	gbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -90,17 +93,59 @@ func (h *Handler) handleDocumentMessage(ctx context.Context, bot *gbot.Bot, mess
 		return
 	}
 
+	// 只处理 JSON 文件
+	if !strings.HasSuffix(strings.ToLower(message.Document.FileName), ".json") {
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "只支持 JSON 文件。"})
+		return
+	}
+
 	// 检查文件大小（最大 10MB）
 	if message.Document.FileSize > 10*1024*1024 {
 		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "文件太大，最大支持 10MB。"})
 		return
 	}
 
-	// 提示用户使用命令行导入
-	_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{
-		Text: fmt.Sprintf("📥 收到文件：%s\n\n请将文件保存到服务器后使用命令行导入：\ngo run ./cmd/import --file /path/to/file.json", 
-			message.Document.FileName),
-	})
+	// 检查是否在导入模式
+	if !h.sessions.IsImportMode(message.From.ID) {
+		return
+	}
+	h.sessions.ClearImportMode(message.From.ID)
+
+	// 检查权限
+	if !h.isAdmin(message.From.ID) {
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "无权限：仅管理员可使用导入功能。"})
+		return
+	}
+
+	// 发送处理中提示
+	_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "📥 正在处理文件..."})
+
+	// 获取文件信息
+	file, err := bot.GetFile(ctx, &gbot.GetFileParams{FileID: message.Document.FileID})
+	if err != nil {
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "获取文件失败。"})
+		return
+	}
+
+	// 构建下载 URL 并下载
+	fileURL := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", bot.Token(), file.FilePath)
+	resp, err := http.Get(fileURL)
+	if err != nil {
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "下载文件失败。"})
+		return
+	}
+	defer resp.Body.Close()
+
+	fileData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "读取文件失败。"})
+		return
+	}
+
+	// 处理导入
+	if err := h.HandleDocument(ctx, message.From.ID, message.Chat.ID, message.Document.FileName, fileData); err != nil {
+		h.reportError(ctx, message.Chat.ID, err)
+	}
 }
 
 func (h *Handler) reportError(ctx context.Context, chatID int64, err error) {

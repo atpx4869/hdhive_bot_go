@@ -70,6 +70,11 @@ func StatusPanel(userID int64, admin, authorized bool, p115Enabled bool, p115Tar
 		b.WriteString("/users - 用户列表\n")
 		b.WriteString("/note <id> <备注> - 设置备注\n")
 		b.WriteString("/logs - 活动日志\n")
+		b.WriteString("/export - 导出数据\n")
+		b.WriteString("/import - 导入数据\n")
+		b.WriteString("/unknown - 查看 unknown 记录\n")
+		b.WriteString("/enable115 <id> - 启用 115\n")
+		b.WriteString("/disable115 <id> - 停用 115\n")
 	}
 
 	return strings.TrimSpace(b.String())

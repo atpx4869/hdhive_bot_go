@@ -95,6 +95,16 @@ func Open(ctx context.Context, dsn string, crypt Cryptor) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
+	// 启用 WAL 模式
+	if _, err := db.ExecContext(ctx, `PRAGMA journal_mode = WAL`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("enable sqlite WAL: %w", err)
+	}
+	// 设置 busy timeout
+	if _, err := db.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("set sqlite busy timeout: %w", err)
+	}
 	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("enable sqlite foreign keys: %w", err)
@@ -594,4 +604,42 @@ func extractDBPath(dsn string) string {
 		}
 	}
 	return dsn
+}
+
+// CleanupActivityLogs 清理过期的活动日志
+// 返回删除的记录数
+func (s *Store) CleanupActivityLogs(ctx context.Context, retentionDays int) (int64, error) {
+	if retentionDays <= 0 {
+		return 0, nil
+	}
+	cutoff := s.nowUTC().AddDate(0, 0, -retentionDays).UnixMilli()
+	result, err := s.db.ExecContext(ctx, `DELETE FROM activity_logs WHERE created_at < ?`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("cleanup activity logs: %w", err)
+	}
+	return result.RowsAffected()
+}
+
+// GetActivityLogsStats 获取活动日志统计信息
+func (s *Store) GetActivityLogsStats(ctx context.Context) (count int64, oldestTime, newestTime int64, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*), MIN(created_at), MAX(created_at) FROM activity_logs`).Scan(&count, &oldestTime, &newestTime)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, 0, 0, nil
+		}
+		return 0, 0, 0, fmt.Errorf("get activity logs stats: %w", err)
+	}
+	return count, oldestTime, newestTime, nil
+}
+
+// GetDatabaseSize 获取数据库文件大小（字节）
+func (s *Store) GetDatabaseSize(ctx context.Context) (int64, error) {
+	var pageCount, pageSize int64
+	if err := s.db.QueryRowContext(ctx, `PRAGMA page_count`).Scan(&pageCount); err != nil {
+		return 0, err
+	}
+	if err := s.db.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&pageSize); err != nil {
+		return 0, err
+	}
+	return pageCount * pageSize, nil
 }

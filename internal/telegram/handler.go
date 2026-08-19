@@ -530,7 +530,15 @@ func (h *Handler) showResources(ctx context.Context, userID, chatID int64, item 
 	if err != nil {
 		return err
 	}
-	out := Outgoing{Text: FormatResources(result)}
+	// 获取影视标题
+	mediaTitle := item.Title
+	if mediaTitle == "" {
+		mediaTitle = item.OriginalTitle
+	}
+	if mediaTitle == "" {
+		mediaTitle = fmt.Sprintf("TMDB %d", item.ID)
+	}
+	out := Outgoing{Text: FormatResources(result, mediaTitle)}
 	for _, r := range result.Items {
 		token, _ := h.sessions.BindCallback(userID, "detail", r.ID)
 		out.Buttons = append(out.Buttons, []Button{{Text: r.Title, CallbackData: token}})
@@ -642,9 +650,37 @@ func (h *Handler) transfer(ctx context.Context, userID, chatID int64, id string)
 	}
 	result, err := h.services.Transfer.Transfer115(ctx, userID, cfg, r)
 	if err != nil {
-		return err
+		// 根据错误类型提供不同的操作
+		errMsg := err.Error()
+		var buttons []Button
+
+		// Cookie 相关错误
+		if strings.Contains(errMsg, "cookie") || strings.Contains(errMsg, "登录") || strings.Contains(errMsg, "auth") {
+			reconfigBtn, _ := h.sessions.BindCallback(userID, "set115", "")
+			buttons = append(buttons, Button{Text: "重新配置 115", CallbackData: reconfigBtn})
+		}
+
+		// 重试按钮
+		retryBtn, _ := h.sessions.BindCallback(userID, "transfer", id)
+		buttons = append(buttons, Button{Text: "重试转存", CallbackData: retryBtn})
+
+		// 返回资源列表
+		backBtn, _ := h.sessions.BindCallback(userID, "resources", id)
+		buttons = append(buttons, Button{Text: "返回资源列表", CallbackData: backBtn})
+
+		// 记录错误日志
+		h.log(ctx, userID, "transfer115", id,
+			store.WithStatus("failed"),
+			store.WithErrorCode(errMsg),
+		)
+
+		out := Outgoing{
+			Text:    fmt.Sprintf("❌ 转存失败：%s", errMsg),
+			Buttons: [][]Button{buttons},
+		}
+		return h.messenger.Send(ctx, chatID, out)
 	}
-	h.log(ctx, userID, "transfer115", id)
+	h.log(ctx, userID, "transfer115", id, store.WithStatus("success"))
 	return h.send(ctx, chatID, "115 转存成功："+result)
 }
 

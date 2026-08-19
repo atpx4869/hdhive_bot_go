@@ -193,11 +193,14 @@ func FormatTMDB(items []TMDBItem, page, totalPages int) string {
 	return strings.TrimSpace(b.String())
 }
 
-func FormatResources(page ResourcePage) string {
+func FormatResources(page ResourcePage, mediaTitle string) string {
 	if len(page.Items) == 0 {
 		return "HDHive 暂无匹配资源。"
 	}
 	var b strings.Builder
+	if mediaTitle != "" {
+		fmt.Fprintf(&b, "🎬 <b>%s</b>\n", mediaTitle)
+	}
 	fmt.Fprintf(&b, "HDHive 资源（%d/%d）：\n", page.Page, max(page.TotalPages, 1))
 	for _, r := range page.Items {
 		fmt.Fprintf(&b, "• %s", r.Title)

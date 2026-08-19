@@ -22,12 +22,24 @@ import (
 	"github.com/atpx4869/hdhive_bot_go/internal/store"
 	"github.com/atpx4869/hdhive_bot_go/internal/telegram"
 	"github.com/atpx4869/hdhive_bot_go/internal/tmdb"
+	"github.com/atpx4869/hdhive_bot_go/internal/version"
 )
 
 func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()
 	}
+
+	// 输出版本信息
+	v := version.Get()
+	logger.Info("starting hdhive-bot-go",
+		"version", v.Version,
+		"commit", v.GitCommit,
+		"go", v.GoVersion,
+		"os", v.OS,
+		"arch", v.Arch,
+	)
+
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	var pollingErr error

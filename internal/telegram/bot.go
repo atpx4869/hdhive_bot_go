@@ -107,6 +107,7 @@ func (h *Handler) handleDocumentMessage(ctx context.Context, bot *gbot.Bot, mess
 
 	// 检查是否在导入模式
 	if !h.sessions.IsImportMode(message.From.ID) {
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "请先发送 /import 命令，然后再发送文件。"})
 		return
 	}
 	h.sessions.ClearImportMode(message.From.ID)
@@ -118,12 +119,12 @@ func (h *Handler) handleDocumentMessage(ctx context.Context, bot *gbot.Bot, mess
 	}
 
 	// 发送处理中提示
-	_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "📥 正在处理文件..."})
+	_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: fmt.Sprintf("📥 正在处理文件: %s...", message.Document.FileName)})
 
 	// 获取文件信息
 	file, err := bot.GetFile(ctx, &gbot.GetFileParams{FileID: message.Document.FileID})
 	if err != nil {
-		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "获取文件信息失败。"})
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: fmt.Sprintf("获取文件信息失败: %v", err)})
 		return
 	}
 
@@ -131,21 +132,23 @@ func (h *Handler) handleDocumentMessage(ctx context.Context, bot *gbot.Bot, mess
 	fileURL := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", bot.Token(), file.FilePath)
 	resp, err := httpClient.Get(fileURL)
 	if err != nil {
-		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: fmt.Sprintf("下载文件失败：%v", err)})
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: fmt.Sprintf("下载文件失败: %v", err)})
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: fmt.Sprintf("下载文件失败：HTTP %d", resp.StatusCode)})
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: fmt.Sprintf("下载文件失败: HTTP %d", resp.StatusCode)})
 		return
 	}
 
 	fileData, err := io.ReadAll(resp.Body)
 	if err != nil {
-		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "读取文件内容失败。"})
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: fmt.Sprintf("读取文件内容失败: %v", err)})
 		return
 	}
+
+	_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: fmt.Sprintf("文件下载成功，大小: %d 字节，正在导入...", len(fileData))})
 
 	// 处理导入
 	if err := h.HandleDocument(ctx, message.From.ID, message.Chat.ID, message.Document.FileName, fileData); err != nil {

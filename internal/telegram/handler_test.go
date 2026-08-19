@@ -303,7 +303,7 @@ func TestSet115TwoStepAndMy115DoesNotExposeCookie(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := m.sent[len(m.sent)-1].Text
-	if strings.Contains(last, "UID=") || !strings.Contains(last, "已配置目录") {
+	if strings.Contains(last, "UID=") || !strings.Contains(last, "目录") {
 		t.Fatalf("unsafe my115 output: %s", last)
 	}
 }

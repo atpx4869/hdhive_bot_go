@@ -159,7 +159,7 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 		return h.send(ctx, chatID, StatusPanel(userID, h.isAdmin(userID), h.authorized(ctx, userID), p115Enabled, p115Target))
 	case "/myid":
 		return h.send(ctx, chatID, fmt.Sprintf("你的 Telegram User ID：%d", userID))
-	case "/authorize", "/revoke", "/users", "/note", "/logs", "/unlockreset":
+	case "/authorize", "/revoke", "/users", "/note", "/logs", "/unlockreset", "/enable115", "/disable115", "/unknown":
 		if !h.isAdmin(userID) {
 			return h.send(ctx, chatID, "无权限：仅管理员可使用此命令。")
 		}
@@ -210,11 +210,15 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 		if !cfg.Enabled {
 			status = "已停用"
 		}
-		target := "根目录"
+		target := "根目录 (0)"
 		if strings.TrimSpace(cfg.TargetCID) != "" && cfg.TargetCID != "0" {
-			target = "已配置目录"
+			target = fmt.Sprintf("目录 %s", cfg.TargetCID)
 		}
-		return h.send(ctx, chatID, "115："+status+"\n目标："+target)
+		text := fmt.Sprintf("115 配置状态：\n• 状态：%s\n• 转存目标：%s", status, target)
+		var buttons []Button
+		changeBtn, _ := h.sessions.BindCallback(userID, "change115cid", "")
+		buttons = append(buttons, Button{Text: "修改目标目录", CallbackData: changeBtn})
+		return h.messenger.Send(ctx, chatID, Outgoing{Text: text, Buttons: [][]Button{buttons}})
 	}
 	if s, ok := h.sessions.Get(userID); ok {
 		if chatID != userID {
@@ -225,6 +229,8 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 			return h.receive115Cookie(ctx, userID, chatID, messageID, text)
 		case "set115_cid":
 			return h.receive115CID(ctx, userID, chatID, text, s.Data["cookie"])
+		case "change115cid":
+			return h.change115CID(ctx, userID, chatID, text)
 		}
 	}
 	return h.search(ctx, userID, chatID, text, 1)
@@ -340,6 +346,65 @@ func (h *Handler) handleAdmin(ctx context.Context, actor, chatID int64, cmd, arg
 		h.sessions.ResetUnlock(userID, resourceID)
 		h.log(ctx, actor, "unlockreset", fmt.Sprintf("user=%d resource=%s", userID, resourceID))
 		return h.send(ctx, chatID, "解锁状态已解除。请先人工核验是否已扣费，再让用户重新操作。")
+	case "/enable115", "/disable115":
+		if h.services.Accounts == nil {
+			return h.send(ctx, chatID, "115 服务未配置。")
+		}
+		var targetID int64
+		if _, err := fmt.Sscanf(arg, "%d", &targetID); err != nil || targetID <= 0 {
+			return h.send(ctx, chatID, "用法："+cmd+" <user_id>")
+		}
+		enable := cmd == "/enable115"
+		cfg, err := h.services.Accounts.GetP115Config(ctx, targetID)
+		if err != nil {
+			return h.send(ctx, chatID, fmt.Sprintf("用户 %d 没有 115 配置。", targetID))
+		}
+		if cfg.Enabled == enable {
+			status := "已启用"
+			if !enable {
+				status = "已停用"
+			}
+			return h.send(ctx, chatID, fmt.Sprintf("用户 %d 的 115 配置%s。", targetID, status))
+		}
+		cfg.Enabled = enable
+		if err := h.services.Accounts.SetP115Config(ctx, targetID, cfg); err != nil {
+			return err
+		}
+		action := "启用"
+		if !enable {
+			action = "停用"
+		}
+		h.log(ctx, actor, cmd[1:], fmt.Sprintf("user=%d", targetID))
+		return h.send(ctx, chatID, fmt.Sprintf("已%s用户 %d 的 115 配置。", action, targetID))
+	case "/unknown":
+		if h.services.HDHive == nil {
+			return h.send(ctx, chatID, "HDHive 服务未配置。")
+		}
+		type unknownGetter interface {
+			GetUnknownUnlockRecords(ctx context.Context, limit int) ([]store.UnlockRecordWithUser, error)
+		}
+		getter, ok := h.services.HDHive.(interface {
+			GetUnknownUnlockRecords(context.Context, int) ([]store.UnlockRecordWithUser, error)
+		})
+		if !ok {
+			// 尝试从 store 获取
+			return h.send(ctx, chatID, "查询服务不可用。")
+		}
+		records, err := getter.GetUnknownUnlockRecords(ctx, 50)
+		if err != nil {
+			return h.send(ctx, chatID, fmt.Sprintf("查询失败：%s", err.Error()))
+		}
+		if len(records) == 0 {
+			return h.send(ctx, chatID, "当前没有 unknown 状态的解锁记录。")
+		}
+		var b strings.Builder
+		b.WriteString("⚠️ <b>Unknown 解锁记录</b>\n\n")
+		for _, r := range records {
+			fmt.Fprintf(&b, "• 用户 <code>%d</code> / 资源 <code>%s</code>\n", r.UserID, r.ResourceID)
+			fmt.Fprintf(&b, "  更新时间：%s\n", r.UpdatedAt.Local().Format("01-02 15:04"))
+		}
+		b.WriteString("\n使用 /unlockreset &lt;user_id&gt; &lt;resource_id&gt; 解除")
+		return h.send(ctx, chatID, b.String())
 	}
 	return nil
 }
@@ -400,6 +465,31 @@ func (h *Handler) receive115CID(ctx context.Context, userID, chatID int64, targe
 	h.sessions.ClearInteraction(userID)
 	h.log(ctx, userID, "set115", map[bool]string{true: "root", false: "configured"}[targetCID == "0"])
 	return h.send(ctx, chatID, "115 配置已加密保存。")
+}
+
+func (h *Handler) change115CID(ctx context.Context, userID, chatID int64, targetCID string) error {
+	targetCID = strings.TrimSpace(targetCID)
+	if targetCID == "" || strings.Trim(targetCID, "0123456789") != "" {
+		return h.send(ctx, chatID, "目标目录 cid 必须是数字；根目录请输入 0。")
+	}
+	if h.services.Accounts == nil {
+		return h.send(ctx, chatID, "115 服务未配置。")
+	}
+	cfg, err := h.services.Accounts.GetP115Config(ctx, userID)
+	if err != nil {
+		return h.send(ctx, chatID, "你还没有配置 115。发送 /set115 开始配置。")
+	}
+	cfg.TargetCID = targetCID
+	if err := h.services.Accounts.SetP115Config(ctx, userID, cfg); err != nil {
+		return err
+	}
+	h.sessions.ClearInteraction(userID)
+	target := "根目录"
+	if targetCID != "0" {
+		target = fmt.Sprintf("目录 %s", targetCID)
+	}
+	h.log(ctx, userID, "change115cid", targetCID)
+	return h.send(ctx, chatID, fmt.Sprintf("115 转存目标已更新为：%s", target))
 }
 
 func (h *Handler) search(ctx context.Context, userID, chatID int64, query string, page int) error {
@@ -518,6 +608,12 @@ func (h *Handler) HandleCallback(ctx context.Context, userID, chatID int64, call
 		return h.search(ctx, userID, chatID, ctx2.Query, page)
 	case "search_retry":
 		return h.search(ctx, userID, chatID, cb.Value, 1)
+	case "change115cid":
+		if chatID != userID {
+			return h.send(ctx, chatID, "为保护 Cookie，此操作只能在 Bot 私聊中使用。")
+		}
+		_ = h.sessions.Set(userID, "change115cid", nil)
+		return h.send(ctx, chatID, "请发送新的目标目录 cid；发送 0 表示根目录。")
 	}
 	return nil
 }

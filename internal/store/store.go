@@ -643,3 +643,65 @@ func (s *Store) GetDatabaseSize(ctx context.Context) (int64, error) {
 	}
 	return pageCount * pageSize, nil
 }
+
+// UnlockRecordWithUser 包含用户信息的解锁记录
+type UnlockRecordWithUser struct {
+	UserID     int64
+	ResourceID string
+	Status     string
+	UpdatedAt  time.Time
+}
+
+// GetUnknownUnlockRecords 获取所有 unknown 状态的解锁记录
+func (s *Store) GetUnknownUnlockRecords(ctx context.Context, limit int) ([]UnlockRecordWithUser, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT user_id, resource_id, status, updated_at FROM unlock_records WHERE status = 'unknown' ORDER BY updated_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get unknown unlock records: %w", err)
+	}
+	defer rows.Close()
+
+	var records []UnlockRecordWithUser
+	for rows.Next() {
+		var r UnlockRecordWithUser
+		var updatedAt int64
+		if err := rows.Scan(&r.UserID, &r.ResourceID, &r.Status, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan unlock record: %w", err)
+		}
+		r.UpdatedAt = time.UnixMilli(updatedAt).UTC()
+		records = append(records, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate unlock records: %w", err)
+	}
+	return records, nil
+}
+
+// GetInFlightUnlockRecords 获取所有 in_flight 状态的解锁记录
+func (s *Store) GetInFlightUnlockRecords(ctx context.Context, limit int) ([]UnlockRecordWithUser, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT user_id, resource_id, status, updated_at FROM unlock_records WHERE status = 'in_flight' ORDER BY updated_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get in_flight unlock records: %w", err)
+	}
+	defer rows.Close()
+
+	var records []UnlockRecordWithUser
+	for rows.Next() {
+		var r UnlockRecordWithUser
+		var updatedAt int64
+		if err := rows.Scan(&r.UserID, &r.ResourceID, &r.Status, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan unlock record: %w", err)
+		}
+		r.UpdatedAt = time.UnixMilli(updatedAt).UTC()
+		records = append(records, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate unlock records: %w", err)
+	}
+	return records, nil
+}

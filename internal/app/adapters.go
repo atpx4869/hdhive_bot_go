@@ -193,6 +193,14 @@ func (a *HDHiveAdapter) DetailForUser(userID int64, id string) (telegram.Resourc
 	r, ok := a.unlocked[userID][id]
 	return r, ok
 }
+
+func (a *HDHiveAdapter) GetUnknownUnlockRecords(ctx context.Context, limit int) ([]store.UnlockRecordWithUser, error) {
+	if a.Store == nil {
+		return nil, nil
+	}
+	return a.Store.GetUnknownUnlockRecords(ctx, limit)
+}
+
 func resourceFromMap(m map[string]any, tmdbID int64, index int) telegram.Resource {
 	id := first(m, "slug", "resource_slug", "url", "id", "_id")
 	if id == "" {

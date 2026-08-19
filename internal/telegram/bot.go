@@ -105,12 +105,11 @@ func (h *Handler) handleDocumentMessage(ctx context.Context, bot *gbot.Bot, mess
 		return
 	}
 
-	// 检查是否在导入模式
+	// 检查是否在导入模式（不在此清除，由 HandleDocument 负责清除）
 	if !h.sessions.IsImportMode(message.From.ID) {
 		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "请先发送 /import 命令，然后再发送文件。"})
 		return
 	}
-	h.sessions.ClearImportMode(message.From.ID)
 
 	// 检查权限
 	if !h.isAdmin(message.From.ID) {

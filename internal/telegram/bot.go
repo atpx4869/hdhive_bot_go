@@ -68,7 +68,7 @@ func (h *Handler) UpdateHandler() gbot.HandlerFunc {
 		if update.Message != nil && update.Message.From != nil {
 			// 处理文档消息
 			if update.Message.Document != nil {
-				h.handleDocumentMessage(ctx, bot, update.Message)
+				h.handleDocumentMessage(ctx, bot, update.Message, h.httpClient)
 				return
 			}
 			if err := h.HandleMessage(ctx, update.Message.From.ID, update.Message.Chat.ID, update.Message.ID, update.Message.Text); err != nil {
@@ -88,7 +88,7 @@ func (h *Handler) UpdateHandler() gbot.HandlerFunc {
 	}
 }
 
-func (h *Handler) handleDocumentMessage(ctx context.Context, bot *gbot.Bot, message *models.Message) {
+func (h *Handler) handleDocumentMessage(ctx context.Context, bot *gbot.Bot, message *models.Message, httpClient *http.Client) {
 	if message.Document == nil || message.From == nil {
 		return
 	}
@@ -123,22 +123,27 @@ func (h *Handler) handleDocumentMessage(ctx context.Context, bot *gbot.Bot, mess
 	// 获取文件信息
 	file, err := bot.GetFile(ctx, &gbot.GetFileParams{FileID: message.Document.FileID})
 	if err != nil {
-		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "获取文件失败。"})
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "获取文件信息失败。"})
 		return
 	}
 
-	// 构建下载 URL 并下载
+	// 构建下载 URL 并使用带代理的客户端下载
 	fileURL := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", bot.Token(), file.FilePath)
-	resp, err := http.Get(fileURL)
+	resp, err := httpClient.Get(fileURL)
 	if err != nil {
-		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "下载文件失败。"})
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: fmt.Sprintf("下载文件失败：%v", err)})
 		return
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: fmt.Sprintf("下载文件失败：HTTP %d", resp.StatusCode)})
+		return
+	}
+
 	fileData, err := io.ReadAll(resp.Body)
 	if err != nil {
-		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "读取文件失败。"})
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "读取文件内容失败。"})
 		return
 	}
 

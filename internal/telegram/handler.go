@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 	"unicode"
@@ -95,13 +96,14 @@ type Messenger interface {
 }
 
 type Handler struct {
-	services  Services
-	sessions  *session.Manager
-	messenger Messenger
-	admins    map[int64]struct{}
+	services   Services
+	sessions   *session.Manager
+	messenger  Messenger
+	admins     map[int64]struct{}
+	httpClient *http.Client
 }
 
-func NewHandler(services Services, sessions *session.Manager, messenger Messenger, adminIDs []int64) (*Handler, error) {
+func NewHandler(services Services, sessions *session.Manager, messenger Messenger, adminIDs []int64, httpClient *http.Client) (*Handler, error) {
 	if sessions == nil || messenger == nil {
 		return nil, errors.New("sessions and messenger are required")
 	}
@@ -109,7 +111,10 @@ func NewHandler(services Services, sessions *session.Manager, messenger Messenge
 	for _, id := range adminIDs {
 		admins[id] = struct{}{}
 	}
-	return &Handler{services: services, sessions: sessions, messenger: messenger, admins: admins}, nil
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	return &Handler{services: services, sessions: sessions, messenger: messenger, admins: admins, httpClient: httpClient}, nil
 }
 
 func (h *Handler) isAdmin(id int64) bool { _, ok := h.admins[id]; return ok }

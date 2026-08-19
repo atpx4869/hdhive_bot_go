@@ -97,7 +97,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 	hdhiveAdapter := NewHDHiveAdapter(hdhiveClient, db)
 	transferAdapter := &TransferAdapter{HTTP: p115HTTPClient, Logger: logger, HDHive: hdhiveAdapter, UserAgent: cfg.P115UserAgent}
-	handler, err = telegram.NewHandler(telegram.Services{Users: db, Accounts: db, Logs: db, TMDB: TMDBAdapter{Client: tmdbClient}, HDHive: hdhiveAdapter, Transfer: transferAdapter}, session.New(cfg.SessionTTL, cfg.SessionCapacity), telegram.BotMessenger{Bot: bot, Logger: logger}, cfg.AdminUserIDs)
+	handler, err = telegram.NewHandler(telegram.Services{Users: db, Accounts: db, Logs: db, TMDB: TMDBAdapter{Client: tmdbClient}, HDHive: hdhiveAdapter, Transfer: transferAdapter}, session.New(cfg.SessionTTL, cfg.SessionCapacity), telegram.BotMessenger{Bot: bot, Logger: logger}, cfg.AdminUserIDs, botHTTPClient)
 	if err != nil {
 		return err
 	}

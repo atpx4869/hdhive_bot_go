@@ -134,7 +134,7 @@ func (f *fakeHive) ResetUnlockRecord(_ context.Context, userID int64, resourceID
 
 func TestUnauthorizedKeywordRejected(t *testing.T) {
 	m := &fakeMessenger{}
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}}, session.New(time.Minute, 10), m, nil)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}}, session.New(time.Minute, 10), m, nil, nil)
 	if err := h.HandleText(context.Background(), 1, 1, "电影"); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestUnauthorizedKeywordRejected(t *testing.T) {
 func TestAdminAuthorize(t *testing.T) {
 	m := &fakeMessenger{}
 	u := &fakeUsers{users: map[int64]store.User{}}
-	h, _ := NewHandler(Services{Users: u}, session.New(time.Minute, 10), m, []int64{9})
+	h, _ := NewHandler(Services{Users: u}, session.New(time.Minute, 10), m, []int64{9}, nil)
 	if err := h.HandleText(context.Background(), 9, 9, "/authorize 7"); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestAdminAuthorize(t *testing.T) {
 func TestCallbackOwnerBinding(t *testing.T) {
 	m := &fakeMessenger{}
 	sm := session.New(time.Minute, 10)
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}}, sm, m, nil)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}}, sm, m, nil, nil)
 	token, _ := sm.BindCallback(1, "detail", "r1")
 	if err := h.HandleCallback(context.Background(), 2, 2, "cb", token); err != nil {
 		t.Fatal(err)
@@ -169,7 +169,7 @@ func TestPaidUnlockRequiresConfirmationAndNoDuplicate(t *testing.T) {
 	m := &fakeMessenger{}
 	sm := session.New(time.Minute, 10)
 	hive := &fakeHive{feeKnown: true, fee: 5}
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}, HDHive: hive}, sm, m, nil)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}, HDHive: hive}, sm, m, nil, nil)
 	token, _ := sm.BindCallback(1, "unlock", "r1")
 	if err := h.HandleCallback(context.Background(), 1, 1, "cb", token); err != nil {
 		t.Fatal(err)
@@ -192,7 +192,7 @@ func TestAdminCanResetUnknownUnlockState(t *testing.T) {
 	_ = sm.BeginUnlock(1, "r1")
 	_ = sm.TransitionUnlock(1, "r1", session.UnlockPending, session.UnlockInFlight)
 	_ = sm.SetUnlockStatus(1, "r1", session.UnlockUnknown)
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}, HDHive: hive}, sm, m, []int64{9})
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}, HDHive: hive}, sm, m, []int64{9}, nil)
 	if err := h.HandleText(context.Background(), 9, 9, "/unlockreset 1 r1"); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestAdminCannotResetNonUnknownUnlockState(t *testing.T) {
 	sm := session.New(time.Minute, 10)
 	_ = sm.BeginUnlock(1, "r1")
 	_ = sm.TransitionUnlock(1, "r1", session.UnlockPending, session.UnlockInFlight)
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}, HDHive: hive}, sm, m, []int64{9})
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}, HDHive: hive}, sm, m, []int64{9}, nil)
 	if err := h.HandleText(context.Background(), 9, 9, "/unlockreset 1 r1"); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestAdminCannotResetNonUnknownUnlockState(t *testing.T) {
 
 func TestSet115CommandWithCookieArgumentIsDeletedAndRejected(t *testing.T) {
 	m := &fakeMessenger{}
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}}, session.New(time.Minute, 10), m, nil)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}}, session.New(time.Minute, 10), m, nil, nil)
 	if err := h.HandleMessage(context.Background(), 1, 1, 20, "/set115 UID=u;CID=c;SEID=s"); err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestSet115CommandWithCookieArgumentIsDeletedAndRejected(t *testing.T) {
 
 func TestSet115CommandWithCookieArgumentIsDeletedBeforeAuthorizationCheck(t *testing.T) {
 	m := &fakeMessenger{}
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}}, session.New(time.Minute, 10), m, nil)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}}, session.New(time.Minute, 10), m, nil, nil)
 	if err := h.HandleMessage(context.Background(), 99, -100, 21, "/set115 UID=u;CID=c;SEID=s"); err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestSet115CommandWithCookieArgumentIsDeletedBeforeAuthorizationCheck(t *tes
 
 func TestSet115SessionCookieSentInGroupIsDeleted(t *testing.T) {
 	m := &fakeMessenger{}
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}}, session.New(time.Minute, 10), m, nil)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}}, session.New(time.Minute, 10), m, nil, nil)
 	ctx := context.Background()
 	_ = h.HandleMessage(ctx, 1, 1, 10, "/set115")
 	if err := h.HandleMessage(ctx, 1, -100, 22, "UID=u;CID=c;SEID=s"); err != nil {
@@ -266,7 +266,7 @@ func TestSet115SessionCookieSentInGroupIsDeleted(t *testing.T) {
 func TestSet115CommandWithWhitespaceCookieArgumentIsDeleted(t *testing.T) {
 	for _, text := range []string{"/set115\nUID=u;CID=c;SEID=s", "/set115\tUID=u;CID=c;SEID=s"} {
 		m := &fakeMessenger{}
-		h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}}, session.New(time.Minute, 10), m, nil)
+		h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}}, session.New(time.Minute, 10), m, nil, nil)
 		if err := h.HandleMessage(context.Background(), 99, -100, 23, text); err != nil {
 			t.Fatal(err)
 		}
@@ -279,7 +279,7 @@ func TestSet115CommandWithWhitespaceCookieArgumentIsDeleted(t *testing.T) {
 func TestSet115SessionGroupCookieDeletedEvenAfterRevocation(t *testing.T) {
 	m := &fakeMessenger{}
 	users := &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}
-	h, _ := NewHandler(Services{Users: users}, session.New(time.Minute, 10), m, nil)
+	h, _ := NewHandler(Services{Users: users}, session.New(time.Minute, 10), m, nil, nil)
 	ctx := context.Background()
 	_ = h.HandleMessage(ctx, 1, 1, 10, "/set115")
 	users.users[1] = store.User{ID: 1, Authorized: false}
@@ -294,7 +294,7 @@ func TestSet115SessionGroupCookieDeletedEvenAfterRevocation(t *testing.T) {
 func TestSet115TwoStepAndMy115DoesNotExposeCookie(t *testing.T) {
 	m := &fakeMessenger{}
 	accounts := &fakeAccounts{configs: map[int64]store.P115Config{}}
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}, Accounts: accounts}, session.New(time.Minute, 10), m, nil)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}, Accounts: accounts}, session.New(time.Minute, 10), m, nil, nil)
 	ctx := context.Background()
 	if err := h.HandleMessage(ctx, 1, 1, 10, "/set115"); err != nil {
 		t.Fatal(err)
@@ -324,7 +324,7 @@ func TestSet115TwoStepAndMy115DoesNotExposeCookie(t *testing.T) {
 func TestSet115DeleteFailureWarnsUser(t *testing.T) {
 	m := &fakeMessenger{deleteErr: errors.New("delete failed")}
 	accounts := &fakeAccounts{configs: map[int64]store.P115Config{}}
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}, Accounts: accounts}, session.New(time.Minute, 10), m, nil)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}, Accounts: accounts}, session.New(time.Minute, 10), m, nil, nil)
 	ctx := context.Background()
 	_ = h.HandleMessage(ctx, 1, 1, 10, "/set115")
 	if err := h.HandleMessage(ctx, 1, 1, 11, "UID=u;CID=c;SEID=s"); err != nil {
@@ -341,7 +341,7 @@ func TestUnset115AdminProtectedAndUserRequiresConfirmation(t *testing.T) {
 	accounts := &fakeAccounts{configs: map[int64]store.P115Config{1: {Cookie: "UID=u;CID=c;SEID=s", TargetCID: "0", Enabled: true}, 9: {Cookie: "UID=a;CID=c;SEID=s", Enabled: true}}}
 	users := &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}
 	sm := session.New(time.Minute, 20)
-	h, _ := NewHandler(Services{Users: users, Accounts: accounts}, sm, m, []int64{9})
+	h, _ := NewHandler(Services{Users: users, Accounts: accounts}, sm, m, []int64{9}, nil)
 	if err := h.HandleText(ctx, 9, 9, "/unset115"); err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func TestUnset115AdminProtectedAndUserRequiresConfirmation(t *testing.T) {
 func TestUnlockFailureUsesUnknownAdminMessage(t *testing.T) {
 	m := &fakeMessenger{}
 	hive := &errorHive{}
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}, HDHive: hive}, session.New(time.Minute, 10), m, nil)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}, HDHive: hive}, session.New(time.Minute, 10), m, nil, nil)
 	h.sessions.BeginUnlock(1, "r1")
 	if err := h.unlock(context.Background(), 1, 1, "r1"); err != nil {
 		t.Fatal(err)
@@ -384,7 +384,7 @@ func TestAdminAuthorityFromEnvOnly(t *testing.T) {
 		2: {ID: 2, Authorized: true}, // 另一个授权用户
 	}}
 	// 只有 ID=9 是管理员
-	h, _ := NewHandler(Services{Users: users}, session.New(time.Minute, 10), m, []int64{9})
+	h, _ := NewHandler(Services{Users: users}, session.New(time.Minute, 10), m, []int64{9}, nil)
 
 	// 授权用户不能执行管理员命令
 	if err := h.HandleText(context.Background(), 1, 1, "/authorize 3"); err != nil {
@@ -425,7 +425,7 @@ func TestAuthorizedUserCannotEscalateToAdmin(t *testing.T) {
 	users := &fakeUsers{users: map[int64]store.User{
 		1: {ID: 1, Authorized: true},
 	}}
-	h, _ := NewHandler(Services{Users: users}, session.New(time.Minute, 10), m, []int64{9})
+	h, _ := NewHandler(Services{Users: users}, session.New(time.Minute, 10), m, []int64{9}, nil)
 
 	// 授权用户尝试授权他人
 	if err := h.HandleText(context.Background(), 1, 1, "/authorize 3"); err != nil {
@@ -449,7 +449,7 @@ func TestAdminListIsImmutable(t *testing.T) {
 	m := &fakeMessenger{}
 	users := &fakeUsers{users: map[int64]store.User{}}
 	sm := session.New(time.Minute, 10)
-	h, _ := NewHandler(Services{Users: users}, sm, m, []int64{9})
+	h, _ := NewHandler(Services{Users: users}, sm, m, []int64{9}, nil)
 
 	// 管理员授权用户
 	if err := h.HandleText(context.Background(), 9, 9, "/authorize 1"); err != nil {

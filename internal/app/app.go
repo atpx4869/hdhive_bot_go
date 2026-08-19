@@ -83,13 +83,8 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		gbot.WithHTTPClient(time.Minute, botHTTPClient),
 		gbot.WithAllowedUpdates(gbot.AllowedUpdates{"message", "callback_query"}),
 		gbot.WithErrorsHandler(func(err error) {
-			pollingErrMu.Lock()
-			if pollingErr == nil {
-				pollingErr = err
-			}
-			pollingErrMu.Unlock()
-			logger.Error("telegram polling error", "error", err)
-			cancelRun()
+			logger.Warn("telegram polling error (will retry)", "error", err)
+			// 不立即退出，让容器重启策略处理
 		}),
 		gbot.WithDefaultHandler(func(ctx context.Context, bot *gbot.Bot, update *models.Update) {
 			if handler != nil {
@@ -144,7 +139,13 @@ func newHTTPClient(cfg config.Config) (*http.Client, error) {
 }
 
 func newHTTPClientWithTimeout(cfg config.Config, timeout time.Duration) (*http.Client, error) {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		DisableKeepAlives:   false,
+	}
 	if cfg.HTTPProxyURL != "" {
 		proxy, err := url.Parse(cfg.HTTPProxyURL)
 		if err != nil {
@@ -152,5 +153,8 @@ func newHTTPClientWithTimeout(cfg config.Config, timeout time.Duration) (*http.C
 		}
 		transport.Proxy = http.ProxyURL(proxy)
 	}
-	return &http.Client{Transport: transport, Timeout: timeout}, nil
+	return &http.Client{
+		Transport: transport,
+		Timeout:   timeout,
+	}, nil
 }

@@ -61,8 +61,13 @@ func (m BotMessenger) SendDocument(ctx context.Context, chatID int64, filename s
 
 // UpdateHandler returns a go-telegram/bot default handler.
 func (h *Handler) UpdateHandler() gbot.HandlerFunc {
-	return func(ctx context.Context, _ *gbot.Bot, update *models.Update) {
+	return func(ctx context.Context, bot *gbot.Bot, update *models.Update) {
 		if update.Message != nil && update.Message.From != nil {
+			// 处理文档消息
+			if update.Message.Document != nil {
+				h.handleDocumentMessage(ctx, bot, update.Message)
+				return
+			}
 			if err := h.HandleMessage(ctx, update.Message.From.ID, update.Message.Chat.ID, update.Message.ID, update.Message.Text); err != nil {
 				h.reportError(ctx, update.Message.Chat.ID, err)
 			}
@@ -78,6 +83,24 @@ func (h *Handler) UpdateHandler() gbot.HandlerFunc {
 			}
 		}
 	}
+}
+
+func (h *Handler) handleDocumentMessage(ctx context.Context, bot *gbot.Bot, message *models.Message) {
+	if message.Document == nil || message.From == nil {
+		return
+	}
+
+	// 检查文件大小（最大 10MB）
+	if message.Document.FileSize > 10*1024*1024 {
+		_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{Text: "文件太大，最大支持 10MB。"})
+		return
+	}
+
+	// 提示用户使用命令行导入
+	_ = h.messenger.Send(ctx, message.Chat.ID, Outgoing{
+		Text: fmt.Sprintf("📥 收到文件：%s\n\n请将文件保存到服务器后使用命令行导入：\ngo run ./cmd/import --file /path/to/file.json", 
+			message.Document.FileName),
+	})
 }
 
 func (h *Handler) reportError(ctx context.Context, chatID int64, err error) {

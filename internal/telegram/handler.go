@@ -411,9 +411,117 @@ func (h *Handler) handleAdmin(ctx context.Context, actor, chatID int64, cmd, arg
 	case "/export":
 		return h.exportData(ctx, actor, chatID)
 	case "/import":
-		return h.send(ctx, chatID, "请发送 JSON 文件进行导入。支持从 Python 版本导出的数据。")
+		// 设置会话状态，等待用户发送文件
+		h.sessions.SetImportMode(actor)
+		return h.send(ctx, chatID, "📥 请发送 JSON 文件进行导入。\n\n支持格式：\n• Go 版本导出的数据\n• Python 版本导出的数据（用户信息）\n\n⚠️ 注意：115 Cookie 已脱敏，无法导入。")
 	}
 	return nil
+}
+
+// HandleDocument 处理文档消息
+func (h *Handler) HandleDocument(ctx context.Context, userID, chatID int64, fileName string, fileData []byte) error {
+	// 检查是否在导入模式
+	if !h.sessions.IsImportMode(userID) {
+		return nil
+	}
+	h.sessions.ClearImportMode(userID)
+
+	if !h.isAdmin(userID) {
+		return h.send(ctx, chatID, "无权限：仅管理员可使用导入功能。")
+	}
+
+	if !strings.HasSuffix(strings.ToLower(fileName), ".json") {
+		return h.send(ctx, chatID, "只支持 JSON 文件。")
+	}
+
+	// 解析 JSON
+	var data map[string]any
+	if err := json.Unmarshal(fileData, &data); err != nil {
+		return h.send(ctx, chatID, fmt.Sprintf("JSON 解析失败：%s", err.Error()))
+	}
+
+	// 检查数据源
+	source, _ := data["source"].(string)
+	imported := 0
+	skipped := 0
+	errors := []string{}
+
+	// 导入用户数据
+	if users, ok := data["users"]; ok {
+		switch u := users.(type) {
+		case map[string]any: // Python 格式
+			for uidStr, userData := range u {
+				var uid int64
+				fmt.Sscanf(uidStr, "%d", &uid)
+				if uid <= 0 {
+					continue
+				}
+				userMap, ok := userData.(map[string]any)
+				if !ok {
+					continue
+				}
+				authorized, _ := userMap["authorized"].(bool)
+				note, _ := userMap["note"].(string)
+
+				if err := h.services.Users.SetUserAuthorization(ctx, uid, authorized); err != nil {
+					errors = append(errors, fmt.Sprintf("用户 %d: %v", uid, err))
+					continue
+				}
+				if note != "" {
+					h.services.Users.SetUserNote(ctx, uid, note)
+				}
+				imported++
+			}
+		case []any: // Go 格式
+			for _, userData := range u {
+				userMap, ok := userData.(map[string]any)
+				if !ok {
+					continue
+				}
+				uid, _ := userMap["id"].(float64)
+				if uid <= 0 {
+					continue
+				}
+				authorized, _ := userMap["authorized"].(bool)
+				note, _ := userMap["note"].(string)
+
+				if err := h.services.Users.SetUserAuthorization(ctx, int64(uid), authorized); err != nil {
+					errors = append(errors, fmt.Sprintf("用户 %d: %v", int64(uid), err))
+					continue
+				}
+				if note != "" {
+					h.services.Users.SetUserNote(ctx, int64(uid), note)
+				}
+				imported++
+			}
+		}
+	}
+
+	// 构建结果消息
+	var result strings.Builder
+	result.WriteString("📥 <b>导入完成</b>\n\n")
+	result.WriteString(fmt.Sprintf("• 数据源：%s\n", source))
+	result.WriteString(fmt.Sprintf("• 成功导入：%d 个用户\n", imported))
+
+	if skipped > 0 {
+		result.WriteString(fmt.Sprintf("• 跳过：%d 个\n", skipped))
+	}
+
+	if len(errors) > 0 {
+		result.WriteString(fmt.Sprintf("\n⚠️ 错误：%d 个\n", len(errors)))
+		for i, e := range errors {
+			if i >= 5 {
+				result.WriteString("...\n")
+				break
+			}
+			result.WriteString(fmt.Sprintf("  • %s\n", e))
+		}
+	}
+
+	// 记录日志
+	h.log(ctx, userID, "import", fileName)
+
+	return h.send(ctx, chatID, result.String())
 }
 
 func (h *Handler) exportData(ctx context.Context, userID, chatID int64) error {

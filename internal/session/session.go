@@ -366,3 +366,46 @@ func (m *Manager) GetSearchContext(userID int64) (SearchContext, bool) {
 	fmt.Sscanf(pageStr, "%d", &page)
 	return SearchContext{Query: query, Page: page}, true
 }
+
+// SetImportMode 设置用户为导入模式
+func (m *Manager) SetImportMode(userID int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	s, ok := m.sessions[userID]
+	if !ok {
+		s = State{UserID: userID, CreatedAt: now, Data: make(map[string]string)}
+	}
+	if s.Data == nil {
+		s.Data = make(map[string]string)
+	}
+	s.Data["import_mode"] = "true"
+	s.UpdatedAt, s.ExpiresAt = now, now.Add(m.ttl)
+	m.sessions[userID] = s
+}
+
+// IsImportMode 检查用户是否在导入模式
+func (m *Manager) IsImportMode(userID int64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupLocked()
+	s, ok := m.sessions[userID]
+	if !ok || s.Data == nil {
+		return false
+	}
+	return s.Data["import_mode"] == "true"
+}
+
+// ClearImportMode 清除用户的导入模式
+func (m *Manager) ClearImportMode(userID int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[userID]
+	if !ok || s.Data == nil {
+		return
+	}
+	delete(s.Data, "import_mode")
+	now := m.now()
+	s.UpdatedAt, s.ExpiresAt = now, now.Add(m.ttl)
+	m.sessions[userID] = s
+}

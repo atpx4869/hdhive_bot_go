@@ -112,6 +112,8 @@ services:
       - ALL
 ```
 
+> **注意**：项目根目录中的 Compose 文件名为 `compose.yaml`（Docker Compose V2 推荐格式）。上文为 NAS 部署的完整示例。
+
 #### 3. 启动服务
 
 ```bash

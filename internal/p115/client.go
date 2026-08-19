@@ -135,10 +135,11 @@ func NewWithBaseURL(baseURL, cookie string, doer HTTPDoer, logger Logger, userAg
 
 func (c *Client) ListShare(ctx context.Context, share Share) ([]Item, error) {
 	var out []Item
+	const maxItems = 2000
 	seen := map[string]bool{}
 	var walk func(string, int) error
 	walk = func(cid string, depth int) error {
-		if depth > c.maxDepth {
+		if depth > c.maxDepth || len(out) >= maxItems {
 			return nil
 		}
 		if seen[cid] {

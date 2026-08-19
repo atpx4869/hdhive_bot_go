@@ -347,6 +347,13 @@ func normalizeResources(v any) []Resource {
 	return out
 }
 func digUnlock(v any, r *UnlockResult) {
+	digUnlockDepth(v, r, 0)
+}
+
+func digUnlockDepth(v any, r *UnlockResult, depth int) {
+	if depth > 10 {
+		return
+	}
 	switch x := v.(type) {
 	case map[string]any:
 		if r.ShareCode == "" {
@@ -366,11 +373,11 @@ func digUnlock(v any, r *UnlockResult) {
 			}
 		}
 		for _, y := range x {
-			digUnlock(y, r)
+			digUnlockDepth(y, r, depth+1)
 		}
 	case []any:
 		for _, y := range x {
-			digUnlock(y, r)
+			digUnlockDepth(y, r, depth+1)
 		}
 	}
 }

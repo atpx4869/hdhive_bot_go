@@ -12,7 +12,39 @@ env:
   DOCKERHUB_REPO: hdhive-bot-go
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        cache: true
+
+    - name: Run tests
+      run: go test ./...
+
+    - name: Run vet
+      run: go vet ./...
+
+    - name: Verify build
+      run: go build ./...
+
+    - name: Check formatting
+      run: |
+        if [ -n "$(gofmt -l cmd internal)" ]; then
+          echo "Files not formatted:"
+          gofmt -l cmd internal
+          exit 1
+        fi
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

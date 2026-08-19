@@ -139,7 +139,7 @@ func newHTTPClient(cfg config.Config) (*http.Client, error) {
 }
 
 func newHTTPClientWithTimeout(cfg config.Config, timeout time.Duration) (*http.Client, error) {
-	transport := &http.Transport{
+	base := &http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,
@@ -151,10 +151,10 @@ func newHTTPClientWithTimeout(cfg config.Config, timeout time.Duration) (*http.C
 		if err != nil {
 			return nil, err
 		}
-		transport.Proxy = http.ProxyURL(proxy)
+		base.Proxy = http.ProxyURL(proxy)
 	}
 	return &http.Client{
-		Transport: transport,
+		Transport: &RetryTransport{Base: base, MaxRetry: 2},
 		Timeout:   timeout,
 	}, nil
 }

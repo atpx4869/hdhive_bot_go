@@ -19,14 +19,22 @@
 - [ ] 运行旧 JSON 迁移，核对用户、备注、115 Cookie、`target_cid` 和 `enabled`。
 - [ ] 在 Linux/Docker 环境完成 `docker compose up -d --build` 验收。
 
+## P0：首次发布前必须完成
+
+- [x] 创建 Git 初始提交并推送到 [`atpx4869/hdhive_bot_go`](https://github.com/atpx4869/hdhive_bot_go)。
+- [x] 对仓库执行凭据扫描，确认不存在真实凭据。
+- [x] CI 增加 `go test`、`go vet`、`go build`、`gofmt` 检查步骤。
+- [x] Dockerfile 构建 `check` 工具并复制到镜像中。
+- [x] 更新 `TODO.md` 标记已完成项。
+
 ## P1：核心可靠性
 
 - [x] 为 `internal/app` 增加 adapter 和生命周期单元测试。
 - [x] 为 `internal/migrate` 增加完整迁移测试，包括损坏 JSON、重复导入和明文 Cookie 不落库。
 - [x] 为 `unlock_records` 增加并发 claim 测试，证明同一 `(user_id, resource_id)` 只有一个请求成功。
-- [ ] 增加“解锁成功后请求 context 取消，结果仍能保存”的回归测试。
-- [ ] 增加“数据库查询/解密失败时禁止继续解锁”的回归测试。
-- [ ] 增加“进程重启后从 SQLite 恢复分享信息并转存”的集成测试。
+- [ ] 增加"解锁成功后请求 context 取消，结果仍能保存"的回归测试。
+- [ ] 增加"数据库查询/解密失败时禁止继续解锁"的回归测试。
+- [ ] 增加"进程重启后从 SQLite 恢复分享信息并转存"的集成测试。
 - [x] 将 HDHive `unknown` 状态增加管理员人工核验/解除机制，避免永久锁死（`/unlockreset <user_id> <resource_id>`）。
 - [x] 为 `in_flight` 增加安全的超时或租约恢复策略；活跃请求不得被管理员直接解除，避免并行重复扣费。
 - [x] 定义稳定的业务错误码，并将 TMDB、HDHive、115 错误映射成用户可理解的提示。
@@ -73,19 +81,28 @@
 - [x] 增加应用版本、启动时间和依赖版本日志。
 - [ ] 增加 polling 重启次数、搜索/解锁/转存成功率和延迟指标；若仍坚持无 HTTP 端口，可输出结构化日志供采集。
 - [x] 增加 Docker image CI：测试、vet、build、多架构镜像和依赖缓存。
+- [x] CI 增加 `go test`/`go vet`/`go build`/`gofmt` 质量检查步骤。
 - [ ] 增加 Dependabot/Renovate 更新 Go modules 和 GitHub Actions。
 - [ ] 增加 release workflow 和语义化版本标签。
 
 ## P2：架构与代码质量
 
-- [ ] 将 `internal/app/adapters.go` 中的大型映射逻辑拆分为独立 mapper/service。
-- [ ] 给 TMDB、HDHive、115 clients 增加统一的 request ID、重试策略和错误接口。
+- [x] 将 `internal/telegram/handler.go` 拆分为 `handler.go`（路由+类型）、`admin.go`（管理员命令）、`commands.go`（115 配置）、`search.go`（搜索/解锁/转存）。
+- [x] 给 TMDB、HDHive、115 clients 增加统一的重试策略（`RetryTransport`，指数退避，最多 2 次重试）。
+- [x] 为 HDHive 资源缓存增加 TTL 淘汰机制（`cacheEntry[T]` 泛型，30 分钟 TTL）。
+- [x] 为 Callback value 改用 JSON 编码，避免分隔符冲突。
+- [x] 为 Telegram handler 增加端到端超时（60 秒 context timeout）。
+- [x] 为用户授权检查增加内存缓存（5 分钟 TTL，减少 DB 查询）。
+- [x] 为搜索输入增加长度校验（500 字符总限 / 200 字符搜索截断）。
+- [x] 为 115 `ListShare` 增加最大条目数限制（2000 条）。
+- [x] 为 HDHive `digUnlock` 增加递归深度限制（10 层）。
+- [x] 为 SQLite 迁移引入版本号管理（`schema_version` 表）。
+- [x] 为密钥轮换增加解锁记录重新加密支持。
+- [x] 为转存错误处理改用 `p115.Error` 类型判断替代字符串匹配。
 - [ ] 为 HDHive 签名创建 Python/Go golden vectors，确保协议完全一致。
 - [ ] 检查当前 HKDF/session key 派生是否与生产 Python 实现逐字节一致，并记录协议说明。
 - [ ] 对 HDHive 资源排序、季集匹配和 115 资源过滤进行显式建模，不继续依赖松散 `map[string]any`。
 - [ ] 将 `telegram.Resource`、TMDB 和 HDHive 数据模型中的多字符串字段拆成可读字段。
-- [ ] 为 Callback value 增加版本化编码，避免字段分隔符导致兼容问题。
-- [ ] 检查 Telegram callback data 长度始终不超过 64 bytes。
 - [ ] 建立 `internal/domain`，减少 Telegram 层直接依赖 Store 类型。
 - [ ] 使用接口隔离 Store，避免 Handler 直接绑定具体 SQLite 模型。
 

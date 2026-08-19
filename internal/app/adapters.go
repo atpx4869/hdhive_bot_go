@@ -35,16 +35,79 @@ func (a TMDBAdapter) Search(ctx context.Context, query string, page int) ([]tele
 	return items, result.TotalPages, nil
 }
 
+type cacheEntry[T any] struct {
+	value     T
+	expiresAt time.Time
+}
+
 type HDHiveAdapter struct {
 	Client    *hdhive.Client
 	Store     *store.Store
 	mu        sync.RWMutex
-	resources map[string]telegram.Resource
-	unlocked  map[int64]map[string]telegram.Resource
+	resources map[string]cacheEntry[telegram.Resource]
+	unlocked  map[int64]map[string]cacheEntry[telegram.Resource]
+	cacheTTL  time.Duration
 }
 
 func NewHDHiveAdapter(client *hdhive.Client, db *store.Store) *HDHiveAdapter {
-	return &HDHiveAdapter{Client: client, Store: db, resources: make(map[string]telegram.Resource), unlocked: make(map[int64]map[string]telegram.Resource)}
+	return &HDHiveAdapter{
+		Client:    client,
+		Store:     db,
+		resources: make(map[string]cacheEntry[telegram.Resource]),
+		unlocked:  make(map[int64]map[string]cacheEntry[telegram.Resource]),
+		cacheTTL:  30 * time.Minute,
+	}
+}
+
+func (a *HDHiveAdapter) cacheResource(r telegram.Resource) {
+	a.resources[r.ID] = cacheEntry[telegram.Resource]{value: r, expiresAt: time.Now().Add(a.cacheTTL)}
+}
+
+func (a *HDHiveAdapter) getCachedResource(id string) (telegram.Resource, bool) {
+	e, ok := a.resources[id]
+	if !ok || time.Now().After(e.expiresAt) {
+		return telegram.Resource{}, false
+	}
+	return e.value, true
+}
+
+func (a *HDHiveAdapter) cacheUnlocked(userID int64, r telegram.Resource) {
+	if a.unlocked[userID] == nil {
+		a.unlocked[userID] = make(map[string]cacheEntry[telegram.Resource])
+	}
+	a.unlocked[userID][r.ID] = cacheEntry[telegram.Resource]{value: r, expiresAt: time.Now().Add(a.cacheTTL)}
+}
+
+func (a *HDHiveAdapter) getCachedUnlocked(userID int64, id string) (telegram.Resource, bool) {
+	perUser := a.unlocked[userID]
+	if perUser == nil {
+		return telegram.Resource{}, false
+	}
+	e, ok := perUser[id]
+	if !ok || time.Now().After(e.expiresAt) {
+		return telegram.Resource{}, false
+	}
+	return e.value, true
+}
+
+// evictExpired removes expired cache entries. Should be called with mu held.
+func (a *HDHiveAdapter) evictExpired() {
+	now := time.Now()
+	for k, e := range a.resources {
+		if now.After(e.expiresAt) {
+			delete(a.resources, k)
+		}
+	}
+	for uid, perUser := range a.unlocked {
+		for k, e := range perUser {
+			if now.After(e.expiresAt) {
+				delete(perUser, k)
+			}
+		}
+		if len(perUser) == 0 {
+			delete(a.unlocked, uid)
+		}
+	}
 }
 func (a *HDHiveAdapter) Search(ctx context.Context, item telegram.TMDBItem, page int) (telegram.ResourcePage, error) {
 	raw, err := a.Client.Resources(ctx, item.MediaType, item.ID)
@@ -54,10 +117,11 @@ func (a *HDHiveAdapter) Search(ctx context.Context, item telegram.TMDBItem, page
 	all := make([]telegram.Resource, 0, len(raw))
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.evictExpired()
 	for i, value := range raw {
 		r := resourceFromMap(value, item.ID, i)
 		all = append(all, r)
-		a.resources[r.ID] = r
+		a.cacheResource(r)
 	}
 	const pageSize = 6
 	if page < 1 {
@@ -82,13 +146,11 @@ func (a *HDHiveAdapter) Search(ctx context.Context, item telegram.TMDBItem, page
 }
 func (a *HDHiveAdapter) Detail(ctx context.Context, userID int64, id string) (telegram.Resource, error) {
 	a.mu.RLock()
-	if perUser := a.unlocked[userID]; perUser != nil {
-		if r, ok := perUser[id]; ok {
-			a.mu.RUnlock()
-			return r, nil
-		}
+	if r, ok := a.getCachedUnlocked(userID, id); ok {
+		a.mu.RUnlock()
+		return r, nil
 	}
-	r, ok := a.resources[id]
+	r, ok := a.getCachedResource(id)
 	a.mu.RUnlock()
 	if !ok {
 		return telegram.Resource{}, telegram.ErrNotFound
@@ -98,10 +160,7 @@ func (a *HDHiveAdapter) Detail(ctx context.Context, userID int64, id string) (te
 		if err == nil && record.Status == "success" && len(record.Result) > 0 {
 			if json.Unmarshal(record.Result, &r) == nil {
 				a.mu.Lock()
-				if a.unlocked[userID] == nil {
-					a.unlocked[userID] = make(map[string]telegram.Resource)
-				}
-				a.unlocked[userID][id] = r
+				a.cacheUnlocked(userID, r)
 				a.mu.Unlock()
 				return r, nil
 			}
@@ -156,10 +215,7 @@ func (a *HDHiveAdapter) Unlock(ctx context.Context, userID int64, id string) (te
 	}
 	r.Unlocked, r.ShareURL, r.ShareCode, r.ReceiveCode = true, result.URL, result.ShareCode, result.ReceiveCode
 	a.mu.Lock()
-	if a.unlocked[userID] == nil {
-		a.unlocked[userID] = make(map[string]telegram.Resource)
-	}
-	a.unlocked[userID][id] = r
+	a.cacheUnlocked(userID, r)
 	a.mu.Unlock()
 	if a.Store != nil {
 		raw, _ := json.Marshal(r)
@@ -182,6 +238,9 @@ func (a *HDHiveAdapter) ResetUnlockRecord(ctx context.Context, userID int64, res
 	a.mu.Lock()
 	if perUser := a.unlocked[userID]; perUser != nil {
 		delete(perUser, resourceID)
+		if len(perUser) == 0 {
+			delete(a.unlocked, userID)
+		}
 	}
 	a.mu.Unlock()
 	return nil
@@ -190,8 +249,7 @@ func (a *HDHiveAdapter) ResetUnlockRecord(ctx context.Context, userID int64, res
 func (a *HDHiveAdapter) DetailForUser(userID int64, id string) (telegram.Resource, bool) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	r, ok := a.unlocked[userID][id]
-	return r, ok
+	return a.getCachedUnlocked(userID, id)
 }
 
 func (a *HDHiveAdapter) GetUnknownUnlockRecords(ctx context.Context, limit int) ([]store.UnlockRecordWithUser, error) {

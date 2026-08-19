@@ -137,7 +137,26 @@ func withForeignKeys(dsn string) string {
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) migrate(ctx context.Context) error {
-	const schema = `
+	// Create schema_version table if it doesn't exist
+	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL DEFAULT 0)`); err != nil {
+		return fmt.Errorf("create schema_version table: %w", err)
+	}
+
+	// Get current version
+	var currentVersion int
+	err := s.db.QueryRowContext(ctx, `SELECT version FROM schema_version LIMIT 1`).Scan(&currentVersion)
+	if err == sql.ErrNoRows {
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO schema_version(version) VALUES(0)`); err != nil {
+			return fmt.Errorf("init schema version: %w", err)
+		}
+		currentVersion = 0
+	} else if err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+
+	// Apply base schema (version 0 → 1)
+	if currentVersion < 1 {
+		const schema = `
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
     authorized INTEGER NOT NULL DEFAULT 0 CHECK (authorized IN (0, 1)),
@@ -171,30 +190,46 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 CREATE INDEX IF NOT EXISTS idx_activity_logs_user_created ON activity_logs(user_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_action_created ON activity_logs(action, created_at DESC, id DESC);
 `
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin sqlite migration: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, schema); err != nil {
-		return fmt.Errorf("migrate sqlite schema: %w", err)
-	}
-	// Existing databases created by older releases need these additive columns.
-	for _, statement := range []string{
-		`ALTER TABLE p115_accounts ADD COLUMN target_cid TEXT NOT NULL DEFAULT '0'`,
-		`ALTER TABLE p115_accounts ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1))`,
-		`ALTER TABLE activity_logs ADD COLUMN status TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE activity_logs ADD COLUMN media_title TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE activity_logs ADD COLUMN resource_title TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE activity_logs ADD COLUMN error_code TEXT NOT NULL DEFAULT ''`,
-	} {
-		if _, err := tx.ExecContext(ctx, statement); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
-			return fmt.Errorf("migrate sqlite schema: %w", err)
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin base migration: %w", err)
 		}
+		defer tx.Rollback()
+		if _, err := tx.ExecContext(ctx, schema); err != nil {
+			return fmt.Errorf("migrate base schema: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE schema_version SET version = 1`); err != nil {
+			return fmt.Errorf("update schema version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit base migration: %w", err)
+		}
+		currentVersion = 1
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit sqlite migration: %w", err)
+
+	// Version 1 → 2: Additive columns for existing tables
+	if currentVersion < 2 {
+		for _, statement := range []string{
+			`ALTER TABLE p115_accounts ADD COLUMN target_cid TEXT NOT NULL DEFAULT '0'`,
+			`ALTER TABLE p115_accounts ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1))`,
+			`ALTER TABLE activity_logs ADD COLUMN status TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE activity_logs ADD COLUMN media_title TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE activity_logs ADD COLUMN resource_title TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE activity_logs ADD COLUMN error_code TEXT NOT NULL DEFAULT ''`,
+		} {
+			if _, err := s.db.ExecContext(ctx, statement); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+				return fmt.Errorf("migrate v1→v2: %w", err)
+			}
+		}
+		if _, err := s.db.ExecContext(ctx, `UPDATE schema_version SET version = 2`); err != nil {
+			return fmt.Errorf("update schema version: %w", err)
+		}
+		currentVersion = 2
 	}
+
+	// Future migrations go here:
+	// if currentVersion < 3 { ... }
+
 	return nil
 }
 
@@ -670,6 +705,33 @@ func (s *Store) GetUnknownUnlockRecords(ctx context.Context, limit int) ([]Unloc
 		if err := rows.Scan(&r.UserID, &r.ResourceID, &r.Status, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan unlock record: %w", err)
 		}
+		r.UpdatedAt = time.UnixMilli(updatedAt).UTC()
+		records = append(records, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate unlock records: %w", err)
+	}
+	return records, nil
+}
+
+// ListUnlockRecordsByUser 获取用户的所有解锁记录（用于密钥轮换）
+func (s *Store) ListUnlockRecordsByUser(ctx context.Context, userID int64) ([]UnlockRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT resource_id, status, encrypted_result, updated_at FROM unlock_records WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list unlock records: %w", err)
+	}
+	defer rows.Close()
+
+	var records []UnlockRecord
+	for rows.Next() {
+		var r UnlockRecord
+		var encrypted []byte
+		var updatedAt int64
+		if err := rows.Scan(&r.ResourceID, &r.Status, &encrypted, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan unlock record: %w", err)
+		}
+		r.UserID = userID
+		r.Result = encrypted
 		r.UpdatedAt = time.UnixMilli(updatedAt).UTC()
 		records = append(records, r)
 	}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"testing"
+	"time"
 
 	"github.com/atpx4869/hdhive_bot_go/internal/telegram"
 )
@@ -203,15 +204,17 @@ func TestDefaultString(t *testing.T) {
 }
 
 func TestResourceDetailForUser(t *testing.T) {
+	now := time.Now()
 	adapter := &HDHiveAdapter{
-		resources: map[string]telegram.Resource{
-			"r1": {ID: "r1", Title: "资源1"},
+		resources: map[string]cacheEntry[telegram.Resource]{
+			"r1": {value: telegram.Resource{ID: "r1", Title: "资源1"}, expiresAt: now.Add(time.Hour)},
 		},
-		unlocked: map[int64]map[string]telegram.Resource{
+		unlocked: map[int64]map[string]cacheEntry[telegram.Resource]{
 			1: {
-				"r1": {ID: "r1", Title: "资源1", Unlocked: true, ShareURL: "https://115.com/s/abc"},
+				"r1": {value: telegram.Resource{ID: "r1", Title: "资源1", Unlocked: true, ShareURL: "https://115.com/s/abc"}, expiresAt: now.Add(time.Hour)},
 			},
 		},
+		cacheTTL: 30 * time.Minute,
 	}
 
 	// 测试已解锁用户的资源

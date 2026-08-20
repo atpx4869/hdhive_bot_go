@@ -1,0 +1,21 @@
+# NAS / 生产环境：直接拉取 Docker Hub 预构建镜像（不本地 build）
+# 更新步骤：
+#   docker compose -f compose.pull.yaml pull
+#   docker compose -f compose.pull.yaml up -d
+# 首次部署前先在同目录准备 config.env（从 config.example.env 复制填写）
+services:
+  worker:
+    image: jzrm/hdhive_bot_go:latest
+    env_file: config.env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - hdhive-data:/data
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  hdhive-data:

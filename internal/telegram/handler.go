@@ -141,6 +141,13 @@ func (h *Handler) setActiveMsg(chatID int64, ref MessageRef) {
 	h.activeMsg[chatID] = ref
 }
 
+// clearActiveMsg removes the tracked main card for a chat.
+func (h *Handler) clearActiveMsg(chatID int64) {
+	h.activeMsgMu.Lock()
+	defer h.activeMsgMu.Unlock()
+	delete(h.activeMsg, chatID)
+}
+
 // renderOrCreate edits the active message if it exists, or creates a new one.
 // Updates the active message reference on success.
 func (h *Handler) renderOrCreate(ctx context.Context, chatID int64, view View) (MessageRef, error) {
@@ -568,12 +575,13 @@ func (h *Handler) show115Settings(ctx context.Context, userID, chatID int64) err
 }
 
 func (h *Handler) closeCard(ctx context.Context, cctx CallbackContext) error {
-	_, err := h.messenger.Render(ctx, MessageRef{
-		ChatID:    cctx.ChatID,
-		MessageID: cctx.MessageID,
-		HasMedia:  cctx.HasMedia,
-	}, View{Body: "已关闭 · 发送新关键词可重新搜索"})
-	return err
+	// 关闭即删除当前消息，并清除该聊天的活动消息跟踪
+	h.clearActiveMsg(cctx.ChatID)
+	if err := h.messenger.DeleteMessage(ctx, cctx.ChatID, cctx.MessageID); err != nil {
+		h.logger.Warn("failed to delete message", "chat_id", cctx.ChatID, "message_id", cctx.MessageID, "error", err)
+		return err
+	}
+	return nil
 }
 
 // showMovieCard displays the movie/TV card with poster and "view resources" button.

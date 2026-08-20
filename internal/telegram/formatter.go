@@ -206,32 +206,6 @@ func FormatResource(r Resource) string {
 	return strings.TrimSpace(b.String())
 }
 
-// FormatUnlockConfirm formats the unlock confirmation prompt.
-func FormatUnlockConfirm(r Resource) string {
-	var b strings.Builder
-	b.WriteString("⚠️ <b>解锁确认</b>\n\n")
-	fmt.Fprintf(&b, "🎬 %s\n", html.EscapeString(r.Title))
-	if r.Quality != "" {
-		fmt.Fprintf(&b, "🎞 %s", html.EscapeString(r.Quality))
-		if r.Size != "" {
-			fmt.Fprintf(&b, " · %s", html.EscapeString(r.Size))
-		}
-		b.WriteByte('\n')
-	}
-	b.WriteByte('\n')
-	if r.FeeKnown {
-		if r.Fee == 0 {
-			b.WriteString("💰 费用：<b>免费</b>\n")
-		} else {
-			fmt.Fprintf(&b, "💰 费用：<b>%d 积分</b>\n", r.Fee)
-		}
-	} else {
-		b.WriteString("💰 费用：<b>未知</b>\n")
-	}
-	b.WriteString("\n❓ 确认解锁此资源？")
-	return b.String()
-}
-
 // FormatUnlockSuccess formats the unlock success message.
 func FormatUnlockSuccess(r Resource) string {
 	var b strings.Builder

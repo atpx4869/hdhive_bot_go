@@ -208,9 +208,6 @@ func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text str
 			for j, btn := range row {
 				if btn.CallbackData == "noop" {
 					switch btn.Text {
-					case "🔎 开始搜索":
-						t, _ := h.sessions.BindCallback(userID, "noop", "search_hint")
-						view.Buttons[i][j].CallbackData = t
 					case "⚙️ 115 设置":
 						t, _ := h.sessions.BindCallback(userID, "settings_115", "")
 						view.Buttons[i][j].CallbackData = t
@@ -506,16 +503,6 @@ func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) erro
 		return h.showDetail(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "unlock":
 		return h.confirmUnlock(ctx, cctx.UserID, cctx.ChatID, cb.Value)
-	case "unlock_confirm":
-		return h.unlock(ctx, cctx.UserID, cctx.ChatID, cb.Value)
-	case "unlock_reject":
-		h.sessions.DeleteCallback(cctx.CallbackData)
-		if err := h.sessions.TransitionUnlock(cctx.UserID, cb.Value, session.UnlockPending, session.UnlockRejected); err != nil {
-			_, _ = h.messenger.Send(ctx, cctx.ChatID, ViewFromText("⚠️ 该解锁请求已处理，不能取消。"))
-			return nil
-		}
-		_, _ = h.messenger.Send(ctx, cctx.ChatID, ViewFromText("🚫 已取消解锁。"))
-		return nil
 	case "settings_115":
 		return h.show115Settings(ctx, cctx.UserID, cctx.ChatID)
 	case "transfer":
@@ -741,7 +728,7 @@ func (h *Handler) confirmUnlock(ctx context.Context, userID, chatID int64, id st
 	if err != nil {
 		return err
 	}
-	h.logger.Info("unlock confirmation requested",
+	h.logger.Info("unlock requested",
 		"user_id", userID,
 		"resource_id", id,
 		"resource_title", r.Title,
@@ -750,10 +737,6 @@ func (h *Handler) confirmUnlock(ctx context.Context, userID, chatID int64, id st
 		"already_unlocked", r.Unlocked,
 	)
 	if r.Unlocked {
-		h.logger.Info("resource already unlocked",
-			"user_id", userID,
-			"resource_id", id,
-		)
 		return h.send(ctx, chatID, "✅ 该资源已经解锁，无需重复提交。")
 	}
 	if err := h.sessions.BeginUnlock(userID, id); err != nil {
@@ -764,18 +747,7 @@ func (h *Handler) confirmUnlock(ctx context.Context, userID, chatID int64, id st
 		)
 		return h.send(ctx, chatID, "⏳ 该资源已在处理，请勿重复提交。")
 	}
-	if r.FeeKnown && r.Fee == 0 {
-		return h.unlock(ctx, userID, chatID, id)
-	}
-	y, _ := h.sessions.BindCallback(userID, "unlock_confirm", id)
-	n, _ := h.sessions.BindCallback(userID, "unlock_reject", id)
-	view := BuildUnlockConfirmView(r)
-	view.Buttons = [][]Button{
-		{CallbackButton("确认解锁", y, "success")},
-		{CallbackButton("取消", n, "")},
-	}
-	_, err = h.renderOrCreate(ctx, chatID, view)
-	return err
+	return h.unlock(ctx, userID, chatID, id)
 }
 
 func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) error {
@@ -1046,7 +1018,6 @@ func displayTitle(i TMDBItem) string {
 // homeButtons returns the Inline Keyboard for the /start home page.
 func homeButtons(userID int64, isAdmin bool) [][]Button {
 	rows := [][]Button{
-		{CallbackButton("🔎 开始搜索", "noop", "")},
 		{CallbackButton("⚙️ 115 设置", "noop", ""), CallbackButton("❓ 使用帮助", "noop", "")},
 	}
 	if isAdmin {

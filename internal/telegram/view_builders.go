@@ -215,41 +215,6 @@ func BuildResourceDetailView(r Resource, mediaTitle string) View {
 	return View{Body: TruncateCaption(b.String())}
 }
 
-// ──────────────────────── Unlock Confirm View ────────────────────────
-
-func BuildUnlockConfirmView(r Resource) View {
-	var b strings.Builder
-	b.WriteString("⚠️ <b>确认解锁</b>\n\n")
-	fmt.Fprintf(&b, "%s\n", html.EscapeString(r.Title))
-	if r.Quality != "" || r.Size != "" {
-		parts := []string{}
-		if r.PanType != "" {
-			parts = append(parts, r.PanType)
-		}
-		if r.Quality != "" {
-			parts = append(parts, r.Quality)
-		}
-		if r.Size != "" {
-			parts = append(parts, r.Size)
-		}
-		fmt.Fprintf(&b, "%s\n\n", html.EscapeString(strings.Join(parts, " · ")))
-	} else {
-		b.WriteByte('\n')
-	}
-	if r.FeeKnown {
-		if r.Fee == 0 {
-			b.WriteString("将<b>免费</b>解锁此资源。\n")
-		} else {
-			fmt.Fprintf(&b, "将消耗 <b>%d 积分</b>。\n", r.Fee)
-		}
-	} else {
-		b.WriteString("⚠️ 服务端没有返回准确费用，实际操作仍可能扣除积分。\n只有确认愿意承担未知费用时才继续。\n")
-	}
-	b.WriteString("\n解锁提交后无法撤销，请勿重复点击。")
-
-	return View{Body: TruncateCaption(b.String())}
-}
-
 // ──────────────────────── Unlock Busy View ────────────────────────
 
 func BuildUnlockBusyView(r Resource) View {

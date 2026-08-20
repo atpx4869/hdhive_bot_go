@@ -124,7 +124,7 @@ func TestCallbackOwnerBinding(t *testing.T) {
 		t.Fatalf("%v", m.answered)
 	}
 }
-func TestPaidUnlockRequiresConfirmationAndNoDuplicate(t *testing.T) {
+func TestUnlockExecutesDirectlyWithoutConfirmation(t *testing.T) {
 	m := &fakeMessenger{}
 	sm := session.New(time.Minute, 10)
 	hive := &fakeHive{feeKnown: true, fee: 5}
@@ -133,14 +133,15 @@ func TestPaidUnlockRequiresConfirmationAndNoDuplicate(t *testing.T) {
 	if err := h.HandleCallback(context.Background(), CallbackContext{UserID: 1, ChatID: 1, MessageID: 100, CallbackID: "cb", CallbackData: token}); err != nil {
 		t.Fatal(err)
 	}
-	if hive.unlocks != 0 || len(m.sent) == 0 || !strings.Contains(m.sent[len(m.sent)-1].Body, "确认解锁") || !strings.Contains(m.sent[len(m.sent)-1].Body, "将消耗 <b>5 积分</b>") {
-		t.Fatalf("unlocks=%d sent=%+v", hive.unlocks, m.sent)
+	if hive.unlocks != 1 {
+		t.Fatalf("unlocks=%d, want 1（积分解锁应直接执行，不弹确认）", hive.unlocks)
 	}
+	// 重复点击应被拦截，不再二次解锁
 	if err := h.HandleCallback(context.Background(), CallbackContext{UserID: 1, ChatID: 1, MessageID: 100, CallbackID: "cb", CallbackData: token}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(m.sent[len(m.sent)-1].Body, "⏳ 该资源已在处理，请勿重复提交。") {
-		t.Fatalf("%+v", m.sent)
+	if hive.unlocks != 1 {
+		t.Fatalf("重复点击应被拦截，unlocks=%d", hive.unlocks)
 	}
 }
 

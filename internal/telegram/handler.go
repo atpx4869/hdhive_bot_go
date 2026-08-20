@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/atpx4869/hdhive_bot_go/internal/session"
 	"github.com/atpx4869/hdhive_bot_go/internal/store"
@@ -659,7 +660,6 @@ func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, id strin
 		}
 		// Copy extract code button
 		if r.ReceiveCode != "" {
-			copyToken, _ := h.sessions.BindCallback(userID, "noop", "")
 			out.Buttons = append(out.Buttons, []Button{CopyButton("📋 复制提取码", r.ReceiveCode)})
 		}
 		out.Buttons = append(out.Buttons, []Button{

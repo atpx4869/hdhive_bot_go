@@ -137,7 +137,6 @@ func (m BotMessenger) editMedia(ctx context.Context, current MessageRef, view Vi
 		ChatID:    current.ChatID,
 		MessageID: current.MessageID,
 		Media: &models.InputMediaPhoto{
-			Type:    "photo",
 			Media:   view.Media.URL,
 			Caption: view.Body,
 		},

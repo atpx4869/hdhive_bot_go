@@ -171,14 +171,6 @@ func BuildCloseView() View {
 	}
 }
 
-// ──────────────────────── Deprecated: keep old formatters for backward compat ────────────────────────
-
-// FormatSearchButtonText returns button text for TMDB search results.
-// Deprecated: use formatSearchButton instead.
-func FormatSearchButtonText(item TMDBItem) string {
-	return formatSearchButton(item)
-}
-
 // ──────────────────────── Resource Detail View ────────────────────────
 
 func BuildResourceDetailView(r Resource, mediaTitle string) View {

@@ -77,8 +77,10 @@ type Services struct {
 
 type Button struct{ Text, CallbackData string }
 type Outgoing struct {
-	Text    string
-	Buttons [][]Button
+	Text          string
+	Buttons       [][]Button
+	ReplyKeyboard  bool // 是否显示底部常驻键盘
+	RemoveKeyboard bool // 是否隐藏底部键盘
 }
 type Messenger interface {
 	Send(context.Context, int64, Outgoing) error
@@ -132,6 +134,39 @@ func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text str
 		"cmd", cmd,
 		"is_admin", h.isAdmin(userID),
 	)
+	// 处理 ReplyKeyboard 按钮
+	switch text {
+	case "🔍 搜索":
+		return h.send(ctx, chatID, "🔍 请直接输入影视关键词进行搜索。
+
+例如：<code>流浪地球</code>")
+	case "🆔 我的ID":
+		return h.send(ctx, chatID, fmt.Sprintf("🆔 你的 Telegram User ID：<b><code>%d</code></b>", userID))
+	case "🍪 115配置":
+		if !h.authorized(ctx, userID) {
+			return h.send(ctx, chatID, "🔒 你尚未获得授权，请将 <code>/myid</code> 的结果发送给管理员。")
+		}
+		return h.send(ctx, chatID, "🍪 请发送 115 Cookie。
+
+使用 <code>/set115</code> 指令，或直接发送 Cookie。")
+	case "📋 115状态":
+		if !h.authorized(ctx, userID) {
+			return h.send(ctx, chatID, "🔒 你尚未获得授权。")
+		}
+		if h.services.Accounts == nil {
+			return h.send(ctx, chatID, "⚠️ 115 服务未配置。")
+		}
+		cfg, err := h.services.Accounts.GetP115Config(ctx, userID)
+		if err != nil {
+			return h.send(ctx, chatID, "🍪 尚未配置 115 Cookie。
+
+使用 <code>/set115</code> 进行配置。")
+		}
+		return h.send(ctx, chatID, "🍪 115 配置状态："+MaskSecret(cfg.Cookie))
+	case "❌ 取消":
+		h.sessions.ClearInteraction(userID)
+		return h.send(ctx, chatID, "🚫 <b>已取消</b> 当前操作。")
+	}
 	switch cmd {
 	case "/start":
 		authorized := h.authorized(ctx, userID)
@@ -140,7 +175,7 @@ func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text str
 			_, err := h.services.Accounts.GetP115Config(ctx, userID)
 			has115 = err == nil
 		}
-		return h.send(ctx, chatID, StatusPanel(userID, h.isAdmin(userID), authorized, has115))
+		return h.messenger.Send(ctx, chatID, Outgoing{Text: StatusPanel(userID, h.isAdmin(userID), authorized, has115), ReplyKeyboard: true})
 	case "/cancel":
 		h.sessions.ClearInteraction(userID)
 		return h.send(ctx, chatID, "🚫 <b>已取消</b> 当前操作。")

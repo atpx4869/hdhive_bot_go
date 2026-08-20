@@ -17,7 +17,23 @@ type BotMessenger struct {
 
 func (m BotMessenger) Send(ctx context.Context, chatID int64, out Outgoing) error {
 	params := &gbot.SendMessageParams{ChatID: chatID, Text: out.Text, ParseMode: "HTML"}
-	if len(out.Buttons) > 0 {
+	if out.RemoveKeyboard {
+		// 隐藏键盘
+		params.ReplyMarkup = models.ReplyKeyboardRemove{RemoveKeyboard: true}
+	} else if out.ReplyKeyboard {
+		// 底部常驻键盘
+		params.ReplyMarkup = models.ReplyKeyboardMarkup{
+			Keyboard: [][]models.KeyboardButton{
+				{{Text: "🔍 搜索"}, {Text: "🆔 我的ID"}},
+				{{Text: "🍪 115配置"}, {Text: "📋 115状态"}},
+				{{Text: "❌ 取消"}},
+			},
+			ResizeKeyboard:        true,
+			IsPersistent:          true,
+			InputFieldPlaceholder: "输入影视关键词搜索...",
+		}
+	} else if len(out.Buttons) > 0 {
+		// 内联键盘
 		rows := make([][]models.InlineKeyboardButton, 0, len(out.Buttons))
 		for _, row := range out.Buttons {
 			buttons := make([]models.InlineKeyboardButton, 0, len(row))

@@ -91,7 +91,7 @@ func Load() (Config, error) {
 	if cfg.HTTPTimeout, err = durationEnv("HTTP_TIMEOUT", 30*time.Second); err != nil {
 		return cfg, err
 	}
-	if cfg.SessionTTL, err = durationEnv("SESSION_TTL", 30*time.Minute); err != nil {
+	if cfg.SessionTTL, err = durationEnv("SESSION_TTL", 2*time.Hour); err != nil {
 		return cfg, err
 	}
 	if cfg.SessionCapacity, err = positiveIntEnv("SESSION_CAPACITY", 1000); err != nil {

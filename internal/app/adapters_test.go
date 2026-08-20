@@ -67,7 +67,7 @@ func TestFilterAndSortResources(t *testing.T) {
 		{ID: "d", PanType: "ed2k", Title: "ed2", Source: "官组"},
 		{ID: "e", PanType: "115", Title: "p2", Source: "官方"},
 	}
-	got := filterAndSortResources(in)
+	got := filterAndSortResources(in, telegram.CatDefault)
 	// 期望顺序：官组115 > 115 > 官组ed2k > ed2k；guangYa 被过滤
 	want := []string{"e", "c", "d", "b"}
 	if len(got) != len(want) {
@@ -77,6 +77,34 @@ func TestFilterAndSortResources(t *testing.T) {
 		if got[i].ID != id {
 			t.Fatalf("order[%d]=%s want %s (got=%+v)", i, got[i].ID, id, got)
 		}
+	}
+}
+
+func TestFilterByCategory(t *testing.T) {
+	in := []telegram.Resource{
+		{ID: "iso115", PanType: "115", Source: "蓝光原盘/ISO"},
+		{ID: "isoEd2k", PanType: "ed2k", Source: "蓝光原盘/ISO"},
+		{ID: "normal115", PanType: "115", Source: "蓝光原盘/REMUX"},
+		{ID: "normalEd2k", PanType: "ed2k", Source: "BDRip"},
+		{ID: "other", PanType: "guangYa", Source: "xxx"},
+	}
+
+	// 默认：115+ed2k 非蓝光原盘/ISO
+	def := filterAndSortResources(in, telegram.CatDefault)
+	if len(def) != 2 || def[0].ID != "normal115" || def[1].ID != "normalEd2k" {
+		t.Fatalf("default=%+v", def)
+	}
+
+	// ISO：只认 "蓝光原盘/ISO" 这几个字
+	iso := filterAndSortResources(in, telegram.CatISO)
+	if len(iso) != 2 || iso[0].ID != "iso115" || iso[1].ID != "isoEd2k" {
+		t.Fatalf("iso=%+v", iso)
+	}
+
+	// 其他：非 115/ed2k
+	other := filterAndSortResources(in, telegram.CatOther)
+	if len(other) != 1 || other[0].ID != "other" {
+		t.Fatalf("other=%+v", other)
 	}
 }
 

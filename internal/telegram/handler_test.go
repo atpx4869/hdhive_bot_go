@@ -80,8 +80,8 @@ type fakeHive struct {
 	fee      int
 }
 
-func (f *fakeHive) Search(context.Context, TMDBItem, int) (ResourcePage, error) {
-	return ResourcePage{Items: []Resource{{ID: "r1", Title: "资源"}}, Page: 1, TotalPages: 1}, nil
+func (f *fakeHive) Search(context.Context, TMDBItem, int, ResourceCategory, int64) (ResourcePage, error) {
+	return ResourcePage{Items: []Resource{{ID: "r1", Title: "资源"}}, Page: 1, TotalPages: 1, Total: 1}, nil
 }
 func (f *fakeHive) Detail(context.Context, int64, string) (Resource, error) {
 	return Resource{ID: "r1", Title: "资源", FeeKnown: f.feeKnown, Fee: f.fee}, nil

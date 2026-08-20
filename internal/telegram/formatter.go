@@ -124,7 +124,7 @@ func FormatResources(page ResourcePage) string {
 		fmt.Fprintf(&b, "%s <b>%s</b>\n", resourceNumber(i), html.EscapeString(r.Title))
 		primary := []string{}
 		if r.PanType != "" {
-			primary = append(primary, panEmoji(r.PanType)+r.PanType)
+			primary = append(primary, "☁️"+r.PanType)
 		}
 		if r.Quality != "" {
 			primary = append(primary, "🎞"+r.Quality)
@@ -132,15 +132,8 @@ func FormatResources(page ResourcePage) string {
 		if r.Size != "" {
 			primary = append(primary, "📦"+r.Size)
 		}
-		if r.FeeKnown {
-			if r.Fee == 0 {
-				primary = append(primary, "🆓免费")
-			} else {
-				primary = append(primary, fmt.Sprintf("🏷%d积分", r.Fee))
-			}
-		}
 		if len(primary) > 0 {
-			fmt.Fprintf(&b, "　%s\n", html.EscapeString(strings.Join(primary, "　")))
+			fmt.Fprintf(&b, "%s\n", html.EscapeString(strings.Join(primary, " ")))
 		}
 		secondary := []string{}
 		if r.Subtitle != "" {
@@ -150,10 +143,7 @@ func FormatResources(page ResourcePage) string {
 			secondary = append(secondary, "💿"+r.Source)
 		}
 		if len(secondary) > 0 {
-			fmt.Fprintf(&b, "　%s\n", html.EscapeString(strings.Join(secondary, "　")))
-		}
-		if r.Unlocked {
-			b.WriteString("　✅ 已解锁\n")
+			fmt.Fprintf(&b, "%s\n", html.EscapeString(strings.Join(secondary, " ")))
 		}
 		b.WriteByte('\n')
 	}
@@ -167,17 +157,6 @@ func resourceNumber(i int) string {
 		return numbers[i]
 	}
 	return fmt.Sprintf("%d.", i+1)
-}
-
-func panEmoji(p string) string {
-	switch strings.ToLower(strings.TrimSpace(p)) {
-	case "115":
-		return "🟦"
-	case "ed2k":
-		return "🟧"
-	default:
-		return "⬜"
-	}
 }
 
 // FormatResource formats a single resource detail with HTML.
@@ -352,18 +331,6 @@ func FormatSearchButtonText(item TMDBItem) string {
 		return fmt.Sprintf("🎬 %s (%s)", title, year)
 	}
 	return fmt.Sprintf("🎬 %s", title)
-}
-
-// FormatResourceButtonText returns button text for resource list with details.
-func FormatResourceButtonText(r Resource) string {
-	parts := []string{r.Title}
-	if r.Quality != "" {
-		parts = append(parts, r.Quality)
-	}
-	if r.Unlocked {
-		parts = append(parts, "✅")
-	}
-	return "📂 " + strings.Join(parts, " · ")
 }
 
 // FormatTransferFailed returns a specific error message for transfer failures.

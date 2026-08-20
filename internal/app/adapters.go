@@ -47,21 +47,31 @@ type HDHiveAdapter struct {
 func NewHDHiveAdapter(client *hdhive.Client, db *store.Store) *HDHiveAdapter {
 	return &HDHiveAdapter{Client: client, Store: db, resources: make(map[string]telegram.Resource), unlocked: make(map[int64]map[string]telegram.Resource)}
 }
-func (a *HDHiveAdapter) Search(ctx context.Context, item telegram.TMDBItem, page int) (telegram.ResourcePage, error) {
+func (a *HDHiveAdapter) Search(ctx context.Context, item telegram.TMDBItem, page int, category telegram.ResourceCategory, userID int64) (telegram.ResourcePage, error) {
 	raw, err := a.Client.Resources(ctx, item.MediaType, item.ID)
 	if err != nil {
 		return telegram.ResourcePage{}, err
 	}
 	all := make([]telegram.Resource, 0, len(raw))
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	for i, value := range raw {
 		r := resourceFromMap(value, item.ID, i)
 		all = append(all, r)
 		a.resources[r.ID] = r
 	}
-	filtered := filterAndSortResources(all)
-	const pageSize = 6
+	a.mu.Unlock()
+
+	// 标记本地已解锁资源（按钮显示 ✅）
+	if a.Store != nil {
+		for i := range all {
+			if record, err := a.Store.GetUnlockRecord(ctx, userID, all[i].ID); err == nil && record.Status == "success" {
+				all[i].Unlocked = true
+			}
+		}
+	}
+
+	filtered := filterAndSortResources(all, category)
+	const pageSize = 8
 	if page < 1 {
 		page = 1
 	}
@@ -265,13 +275,25 @@ func isOfficialGroup(r telegram.Resource) bool {
 	return strings.Contains(s, "官组") || strings.Contains(s, "官方") || strings.Contains(s, "official")
 }
 
-// filterAndSortResources keeps only 115/ed2k resources and orders them:
-// 115 before ed2k, official groups before others, preserving original order.
-func filterAndSortResources(all []telegram.Resource) []telegram.Resource {
+// filterAndSortResources 按分类过滤并排序：
+// 默认=115+ed2k(非蓝光原盘/ISO)、iso=蓝光原盘/ISO、other=其他网盘类型。
+// 排序：网盘类型（115 > ed2k）→ 官组优先 → 稳定保持原序。
+func filterAndSortResources(all []telegram.Resource, category telegram.ResourceCategory) []telegram.Resource {
 	filtered := make([]telegram.Resource, 0, len(all))
 	for _, r := range all {
-		if panTypeRank(r.PanType) < 2 {
-			filtered = append(filtered, r)
+		switch category {
+		case telegram.CatISO:
+			if strings.Contains(r.Source, "蓝光原盘/ISO") {
+				filtered = append(filtered, r)
+			}
+		case telegram.CatOther:
+			if panTypeRank(r.PanType) >= 2 {
+				filtered = append(filtered, r)
+			}
+		default:
+			if panTypeRank(r.PanType) < 2 && !strings.Contains(r.Source, "蓝光原盘/ISO") {
+				filtered = append(filtered, r)
+			}
 		}
 	}
 	sort.SliceStable(filtered, func(i, j int) bool {

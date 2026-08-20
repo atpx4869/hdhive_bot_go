@@ -70,8 +70,17 @@ type ResourcePage struct {
 	Total            int
 }
 
+// ResourceCategory 资源分组。
+type ResourceCategory string
+
+const (
+	CatDefault ResourceCategory = "default" // 115 + ed2k（不含蓝光原盘/ISO）
+	CatISO     ResourceCategory = "iso"     // 蓝光原盘/ISO
+	CatOther   ResourceCategory = "other"   // 其他网盘类型
+)
+
 type HDHiveService interface {
-	Search(context.Context, TMDBItem, int) (ResourcePage, error)
+	Search(context.Context, TMDBItem, int, ResourceCategory, int64) (ResourcePage, error)
 	Detail(context.Context, int64, string) (Resource, error)
 	Unlock(context.Context, int64, string) (Resource, error)
 }
@@ -476,7 +485,7 @@ func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) erro
 	case "tmdb":
 		return h.showMovieCard(ctx, cctx.UserID, cctx.ChatID, decodeTMDB(cb.Value))
 	case "movie_resources":
-		return h.showResources(ctx, cctx.UserID, cctx.ChatID, decodeTMDB(cb.Value), 1)
+		return h.showResources(ctx, cctx.UserID, cctx.ChatID, decodeTMDB(cb.Value), 1, CatDefault)
 	case "back_search":
 		// Return to search results - need to re-search
 		return h.send(ctx, cctx.ChatID, "🔍 请发送新的搜索关键词")
@@ -491,8 +500,8 @@ func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) erro
 		}
 		return h.search(ctx, cctx.UserID, cctx.ChatID, query, page)
 	case "resources":
-		item, page := decodeResourcePage(cb.Value)
-		return h.showResources(ctx, cctx.UserID, cctx.ChatID, item, page)
+		item, page, cat := decodeResourceNav(cb.Value)
+		return h.showResources(ctx, cctx.UserID, cctx.ChatID, item, page, cat)
 	case "detail":
 		return h.showDetail(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "unlock":
@@ -589,7 +598,7 @@ func (h *Handler) showMovieCard(ctx context.Context, userID, chatID int64, item 
 	return err
 }
 
-func (h *Handler) showResources(ctx context.Context, userID, chatID int64, item TMDBItem, page int) error {
+func (h *Handler) showResources(ctx context.Context, userID, chatID int64, item TMDBItem, page int, category ResourceCategory) error {
 	if h.services.HDHive == nil {
 		return h.send(ctx, chatID, "⚠️ HDHive 服务未配置。")
 	}
@@ -599,8 +608,9 @@ func (h *Handler) showResources(ctx context.Context, userID, chatID int64, item 
 		"media_type", item.MediaType,
 		"title", item.Title,
 		"page", page,
+		"category", category,
 	)
-	result, err := h.services.HDHive.Search(ctx, item, page)
+	result, err := h.services.HDHive.Search(ctx, item, page, category, userID)
 	if err != nil {
 		h.logger.Error("HDHive search failed",
 			"user_id", userID,
@@ -614,30 +624,62 @@ func (h *Handler) showResources(ctx context.Context, userID, chatID int64, item 
 		"tmdb_id", item.ID,
 		"resources_found", len(result.Items),
 		"total_pages", result.TotalPages,
+		"category", category,
 	)
 	body := FormatResources(result)
 	if item.Title != "" {
 		body = "🎬 <b>" + html.EscapeString(item.Title) + "</b>\n\n" + body
 	}
 	out := View{Body: body}
-	for _, r := range result.Items {
-		token, _ := h.sessions.BindCallback(userID, "detail", r.ID)
-		out.Buttons = append(out.Buttons, []Button{CallbackButton(FormatResourceButtonText(r), token, "")})
+
+	// 资源选择按钮：序号 + 状态，一行 4 个
+	var row []Button
+	for i, r := range result.Items {
+		token, _ := h.sessions.BindCallback(userID, "detail", encodeDetail(item, page, category, r.ID))
+		row = append(row, CallbackButton(resourceStateLabel(r, i), token, ""))
+		if len(row) == 4 {
+			out.Buttons = append(out.Buttons, row)
+			row = nil
+		}
 	}
+	if len(row) > 0 {
+		out.Buttons = append(out.Buttons, row)
+	}
+
+	// 翻页
 	var nav []Button
 	if page > 1 {
-		t, _ := h.sessions.BindCallback(userID, "resources", encodeResourcePage(item, page-1))
+		t, _ := h.sessions.BindCallback(userID, "resources", encodeResourceNav(item, page-1, category))
 		nav = append(nav, CallbackButton("‹ 上一页", t, ""))
 	}
-	nav = append(nav, NoopButton(fmt.Sprintf("%d / %d", page, max(result.TotalPages, 1))))
+	nav = append(nav, NoopButton(fmt.Sprintf("%d/%d", page, max(result.TotalPages, 1))))
 	if page < result.TotalPages {
-		t, _ := h.sessions.BindCallback(userID, "resources", encodeResourcePage(item, page+1))
+		t, _ := h.sessions.BindCallback(userID, "resources", encodeResourceNav(item, page+1, category))
 		nav = append(nav, CallbackButton("下一页 ›", t, ""))
 	}
 	if len(nav) > 0 {
 		out.Buttons = append(out.Buttons, nav)
 	}
-	// Back and close buttons
+
+	// 分类切换按钮（显示除当前分类外的其他分组）
+	catRow := []Button{}
+	if category != CatISO {
+		t, _ := h.sessions.BindCallback(userID, "resources", encodeResourceNav(item, 1, CatISO))
+		catRow = append(catRow, CallbackButton("蓝光原盘/ISO", t, ""))
+	}
+	if category != CatOther {
+		t, _ := h.sessions.BindCallback(userID, "resources", encodeResourceNav(item, 1, CatOther))
+		catRow = append(catRow, CallbackButton("其他类型资源", t, ""))
+	}
+	if category != CatDefault {
+		t, _ := h.sessions.BindCallback(userID, "resources", encodeResourceNav(item, 1, CatDefault))
+		catRow = append(catRow, CallbackButton("常规资源", t, ""))
+	}
+	if len(catRow) > 0 {
+		out.Buttons = append(out.Buttons, catRow)
+	}
+
+	// 返回影片 + 关闭
 	backToken, _ := h.sessions.BindCallback(userID, "movie_resources", encodeTMDB(item))
 	out.Buttons = append(out.Buttons, []Button{
 		CallbackButton("‹ 返回影片", backToken, ""),
@@ -647,20 +689,21 @@ func (h *Handler) showResources(ctx context.Context, userID, chatID int64, item 
 	return err
 }
 
-func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, id string) error {
+func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, value string) error {
+	item, page, category, id := decodeDetail(value)
 	r, err := h.services.HDHive.Detail(ctx, userID, id)
 	if err != nil {
 		return err
 	}
 	h.logger.Info("showing resource detail", "user_id", userID, "resource_id", id, "unlocked", r.Unlocked)
 
-	// Store mediaTitle in session for later use
 	out := BuildResourceDetailView(r, "")
 
+	// 返回按钮真正回到之前资源列表的对应页/分类
+	backToken, _ := h.sessions.BindCallback(userID, "resources", encodeResourceNav(item, page, category))
+
 	if r.Unlocked {
-		// Build buttons with real tokens
 		transferToken, _ := h.sessions.BindCallback(userID, "transfer", id)
-		backToken, _ := h.sessions.BindCallback(userID, "noop", "")
 		out.Buttons = [][]Button{
 			{CallbackButton("📥 转存到 115", transferToken, "success")},
 		}
@@ -674,7 +717,6 @@ func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, id strin
 		})
 	} else {
 		unlockToken, _ := h.sessions.BindCallback(userID, "unlock", id)
-		backToken, _ := h.sessions.BindCallback(userID, "noop", "")
 		out.Buttons = [][]Button{
 			{CallbackButton("🔓 解锁资源", unlockToken, "success")},
 			{CallbackButton("‹ 返回资源列表", backToken, ""), CallbackButton("✕ 关闭", "close", "")},
@@ -953,6 +995,46 @@ func decodeResourcePage(v string) (TMDBItem, int) {
 		fmt.Sscan(p[4], &page)
 	}
 	return i, page
+}
+
+// encodeResourceNav 编码 TMDB + 页码 + 分类，用于资源列表翻页/分类切换按钮。
+func encodeResourceNav(i TMDBItem, p int, cat ResourceCategory) string {
+	return encodeResourcePage(i, p) + "\n" + string(cat)
+}
+func decodeResourceNav(v string) (TMDBItem, int, ResourceCategory) {
+	idx := strings.LastIndex(v, "\n")
+	if idx < 0 {
+		return TMDBItem{}, 1, CatDefault
+	}
+	item, page := decodeResourcePage(v[:idx])
+	return item, page, ResourceCategory(v[idx+1:])
+}
+
+// encodeDetail 编码 TMDB + 页码 + 分类 + 资源ID，用于资源详情返回列表。
+func encodeDetail(i TMDBItem, p int, cat ResourceCategory, id string) string {
+	return encodeResourceNav(i, p, cat) + "\n" + id
+}
+func decodeDetail(v string) (TMDBItem, int, ResourceCategory, string) {
+	idx := strings.LastIndex(v, "\n")
+	if idx < 0 {
+		return TMDBItem{}, 1, CatDefault, v
+	}
+	item, page, cat := decodeResourceNav(v[:idx])
+	return item, page, cat, v[idx+1:]
+}
+
+// resourceStateLabel 生成资源选择按钮文案：序号 + 状态 emoji/积分。
+func resourceStateLabel(r Resource, index int) string {
+	if r.Unlocked {
+		return fmt.Sprintf("%d、✅", index+1)
+	}
+	if r.FeeKnown {
+		if r.Fee == 0 {
+			return fmt.Sprintf("%d、🆓", index+1)
+		}
+		return fmt.Sprintf("%d、%d积分", index+1, r.Fee)
+	}
+	return fmt.Sprintf("%d、❓", index+1)
 }
 func displayTitle(i TMDBItem) string {
 	if i.Title != "" {

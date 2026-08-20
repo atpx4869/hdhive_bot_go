@@ -291,9 +291,13 @@ func FormatTransferSuccess(result string) string {
 }
 
 // StatusPanel returns a rich /start message with user status.
-func StatusPanel(userID int64, isAdmin bool, authorized bool, has115 bool) string {
+func StatusPanel(userID int64, isAdmin bool, authorized bool, has115 bool, version string) string {
 	var b strings.Builder
-	b.WriteString("🎬 <b>HDHive Bot</b>\n\n")
+	if version != "" {
+		fmt.Fprintf(&b, "🎬 <b>HDHive Bot</b> <i>%s</i>\n\n", html.EscapeString(version))
+	} else {
+		b.WriteString("🎬 <b>HDHive Bot</b>\n\n")
+	}
 
 	// 用户状态
 	b.WriteString("👤 <b>用户状态</b>\n")

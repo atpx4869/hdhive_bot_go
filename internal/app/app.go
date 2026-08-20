@@ -24,7 +24,7 @@ import (
 	"github.com/atpx4869/hdhive_bot_go/internal/tmdb"
 )
 
-func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
+func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, version string) error {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -95,7 +95,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("create telegram bot: %w", err)
 	}
 	hdhiveAdapter := NewHDHiveAdapter(hdhiveClient, db)
-	handler, err = telegram.NewHandler(telegram.Services{Users: db, Accounts: db, Logs: db, TMDB: TMDBAdapter{Client: tmdbClient}, HDHive: hdhiveAdapter, Transfer: TransferAdapter{HTTP: httpClient, Logger: logger, HDHive: hdhiveAdapter}}, session.New(cfg.SessionTTL, cfg.SessionCapacity), telegram.BotMessenger{Bot: bot, Logger: logger, HTTP: botHTTPClient}, cfg.AdminUserIDs, logger)
+	handler, err = telegram.NewHandler(telegram.Services{Users: db, Accounts: db, Logs: db, TMDB: TMDBAdapter{Client: tmdbClient}, HDHive: hdhiveAdapter, Transfer: TransferAdapter{HTTP: httpClient, Logger: logger, HDHive: hdhiveAdapter}}, session.New(cfg.SessionTTL, cfg.SessionCapacity), telegram.BotMessenger{Bot: bot, Logger: logger, HTTP: botHTTPClient}, cfg.AdminUserIDs, logger, version)
 	if err != nil {
 		return err
 	}
@@ -133,10 +133,10 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	return fmt.Errorf("telegram polling returned unexpectedly")
 }
 
-func RunWithSignals(cfg config.Config, logger *slog.Logger) error {
+func RunWithSignals(cfg config.Config, logger *slog.Logger, version string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return Run(ctx, cfg, logger)
+	return Run(ctx, cfg, logger, version)
 }
 func newTelegramHTTPClient(cfg config.Config) (*http.Client, error) {
 	client, err := newHTTPClient(cfg)

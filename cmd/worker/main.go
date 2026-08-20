@@ -44,7 +44,7 @@ func main() {
 		"session_capacity", cfg.SessionCapacity,
 	)
 
-	err = app.RunWithSignals(cfg, logger)
+	err = app.RunWithSignals(cfg, logger, version)
 	if err != nil {
 		logger.Error("worker exited with error", "error", err)
 		os.Exit(1)

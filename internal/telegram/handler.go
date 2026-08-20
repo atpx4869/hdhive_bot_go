@@ -97,12 +97,13 @@ type Handler struct {
 	messenger Messenger
 	admins    map[int64]struct{}
 	logger    *slog.Logger
+	version   string
 	// Active message tracking: key = chatID (private chat = userID)
 	activeMsg   map[int64]MessageRef // chatID → current main card
 	activeMsgMu sync.RWMutex
 }
 
-func NewHandler(services Services, sessions *session.Manager, messenger Messenger, adminIDs []int64, logger *slog.Logger) (*Handler, error) {
+func NewHandler(services Services, sessions *session.Manager, messenger Messenger, adminIDs []int64, logger *slog.Logger, version string) (*Handler, error) {
 	if sessions == nil || messenger == nil {
 		return nil, errors.New("sessions and messenger are required")
 	}
@@ -113,7 +114,7 @@ func NewHandler(services Services, sessions *session.Manager, messenger Messenge
 	for _, id := range adminIDs {
 		admins[id] = struct{}{}
 	}
-	return &Handler{services: services, sessions: sessions, messenger: messenger, admins: admins, logger: logger, activeMsg: make(map[int64]MessageRef)}, nil
+	return &Handler{services: services, sessions: sessions, messenger: messenger, admins: admins, logger: logger, version: version, activeMsg: make(map[int64]MessageRef)}, nil
 }
 
 // getActiveMsg returns the current main card for a chat, or zero value if none.
@@ -192,7 +193,7 @@ func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text str
 			_, err := h.services.Accounts.GetP115Config(ctx, userID)
 			has115 = err == nil
 		}
-		view := BuildHomeView(userID, h.isAdmin(userID), authorized, has115)
+		view := BuildHomeView(userID, h.isAdmin(userID), authorized, has115, h.version)
 		// Set callback tokens
 		for i, row := range view.Buttons {
 			for j, btn := range row {

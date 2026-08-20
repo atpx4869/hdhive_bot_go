@@ -8,9 +8,9 @@ import (
 
 // ──────────────────────── Home View ────────────────────────
 
-func BuildHomeView(userID int64, isAdmin, authorized, has115 bool) View {
+func BuildHomeView(userID int64, isAdmin, authorized, has115 bool, version string) View {
 	return View{
-		Body:    StatusPanel(userID, isAdmin, authorized, has115),
+		Body:    StatusPanel(userID, isAdmin, authorized, has115, version),
 		Buttons: homeButtons(userID, isAdmin),
 	}
 }

@@ -31,3 +31,12 @@ func TestFormatResourceUnknownFee(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestStatusPanelShowsVersion(t *testing.T) {
+	if got := StatusPanel(42, true, true, true, "v1.4.0"); !strings.Contains(got, "v1.4.0") {
+		t.Fatalf("missing version: %s", got)
+	}
+	if got := StatusPanel(42, false, false, false, ""); !strings.Contains(got, "HDHive Bot</b>\n") {
+		t.Fatalf("unexpected version handling: %s", got)
+	}
+}

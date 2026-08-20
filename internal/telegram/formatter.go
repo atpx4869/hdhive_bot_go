@@ -112,47 +112,72 @@ func FormatTMDB(items []TMDBItem, page, totalPages int) string {
 // FormatResources formats HDHive resource list with HTML.
 func FormatResources(page ResourcePage) string {
 	if len(page.Items) == 0 {
-		return "📂 HDHive 暂无匹配资源。"
+		return "📂 暂无匹配资源。"
+	}
+	total := page.Total
+	if total <= 0 {
+		total = len(page.Items)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "📂 <b>HDHive 资源</b>（第 %d / %d 页）\n\n", page.Page, max(page.TotalPages, 1))
-	for _, r := range page.Items {
-		b.WriteString("🔷 ")
-		fmt.Fprintf(&b, "<b>%s</b>", html.EscapeString(r.Title))
-		tags := []string{}
+	fmt.Fprintf(&b, "共 <b>%d</b> 条资源 · 第 <b>%d/%d</b> 页\n\n", total, page.Page, max(page.TotalPages, 1))
+	for i, r := range page.Items {
+		fmt.Fprintf(&b, "%s <b>%s</b>\n", resourceNumber(i), html.EscapeString(r.Title))
+		primary := []string{}
+		if r.PanType != "" {
+			primary = append(primary, panEmoji(r.PanType)+r.PanType)
+		}
 		if r.Quality != "" {
-			tags = append(tags, r.Quality)
+			primary = append(primary, "🎞"+r.Quality)
 		}
 		if r.Size != "" {
-			tags = append(tags, r.Size)
-		}
-		if len(tags) > 0 {
-			fmt.Fprintf(&b, " · <i>%s</i>", html.EscapeString(strings.Join(tags, " · ")))
-		}
-		b.WriteByte('\n')
-		details := []string{}
-		if r.PanType != "" {
-			details = append(details, "☁️ "+r.PanType)
-		}
-		if r.Source != "" {
-			details = append(details, "📡 "+r.Source)
+			primary = append(primary, "📦"+r.Size)
 		}
 		if r.FeeKnown {
 			if r.Fee == 0 {
-				details = append(details, "🆓 免费")
+				primary = append(primary, "🆓免费")
 			} else {
-				details = append(details, fmt.Sprintf("🏷 %d积分", r.Fee))
+				primary = append(primary, fmt.Sprintf("🏷%d积分", r.Fee))
 			}
 		}
+		if len(primary) > 0 {
+			fmt.Fprintf(&b, "　%s\n", html.EscapeString(strings.Join(primary, "　")))
+		}
+		secondary := []string{}
+		if r.Subtitle != "" {
+			secondary = append(secondary, "🌐"+r.Subtitle)
+		}
+		if r.Source != "" {
+			secondary = append(secondary, "💿"+r.Source)
+		}
+		if len(secondary) > 0 {
+			fmt.Fprintf(&b, "　%s\n", html.EscapeString(strings.Join(secondary, "　")))
+		}
 		if r.Unlocked {
-			details = append(details, "✅ 已解锁")
+			b.WriteString("　✅ 已解锁\n")
 		}
-		if len(details) > 0 {
-			fmt.Fprintf(&b, "   └  %s\n", html.EscapeString(strings.Join(details, "  ·  ")))
-		}
+		b.WriteByte('\n')
 	}
-	b.WriteString("\n💡 <i>点击资源查看详情</i>")
-	return b.String()
+	b.WriteString("👇 点击下方按钮查看资源详情")
+	return strings.TrimSpace(b.String())
+}
+
+func resourceNumber(i int) string {
+	numbers := []string{"1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"}
+	if i < len(numbers) {
+		return numbers[i]
+	}
+	return fmt.Sprintf("%d.", i+1)
+}
+
+func panEmoji(p string) string {
+	switch strings.ToLower(strings.TrimSpace(p)) {
+	case "115":
+		return "🟦"
+	case "ed2k":
+		return "🟧"
+	default:
+		return "⬜"
+	}
 }
 
 // FormatResource formats a single resource detail with HTML.
@@ -331,21 +356,10 @@ func FormatResourceButtonText(r Resource) string {
 	if r.Quality != "" {
 		parts = append(parts, r.Quality)
 	}
-	if r.Size != "" {
-		parts = append(parts, r.Size)
-	}
-	text := strings.Join(parts, " · ")
-	if r.FeeKnown {
-		if r.Fee == 0 {
-			text += " · 🆓"
-		} else {
-			text += fmt.Sprintf(" · %d积分", r.Fee)
-		}
-	}
 	if r.Unlocked {
-		text += " · ✅"
+		parts = append(parts, "✅")
 	}
-	return "📂 " + text
+	return "📂 " + strings.Join(parts, " · ")
 }
 
 // FormatTransferFailed returns a specific error message for transfer failures.

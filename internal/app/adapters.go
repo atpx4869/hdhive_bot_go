@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,11 +60,12 @@ func (a *HDHiveAdapter) Search(ctx context.Context, item telegram.TMDBItem, page
 		all = append(all, r)
 		a.resources[r.ID] = r
 	}
+	filtered := filterAndSortResources(all)
 	const pageSize = 6
 	if page < 1 {
 		page = 1
 	}
-	total := (len(all) + pageSize - 1) / pageSize
+	total := (len(filtered) + pageSize - 1) / pageSize
 	if total < 1 {
 		total = 1
 	}
@@ -72,13 +74,13 @@ func (a *HDHiveAdapter) Search(ctx context.Context, item telegram.TMDBItem, page
 	}
 	start := (page - 1) * pageSize
 	end := start + pageSize
-	if start > len(all) {
-		start = len(all)
+	if start > len(filtered) {
+		start = len(filtered)
 	}
-	if end > len(all) {
-		end = len(all)
+	if end > len(filtered) {
+		end = len(filtered)
 	}
-	return telegram.ResourcePage{Items: all[start:end], Page: page, TotalPages: total}, nil
+	return telegram.ResourcePage{Items: filtered[start:end], Page: page, TotalPages: total, Total: len(filtered)}, nil
 }
 func (a *HDHiveAdapter) Detail(ctx context.Context, userID int64, id string) (telegram.Resource, error) {
 	a.mu.RLock()
@@ -177,20 +179,118 @@ func resourceFromMap(m map[string]any, tmdbID int64, index int) telegram.Resourc
 	if id == "" {
 		id = fmt.Sprintf("%d-%d", tmdbID, index)
 	}
-	fee, feeKnown := integer(m, "fee", "price", "cost", "points", "coin")
-	r := telegram.Resource{ID: id, UnlockSlug: id, Title: defaultString(first(m, "title", "name", "resource_name"), "未命名资源"), Quality: first(m, "quality", "resolution", "video_quality"), Size: first(m, "size", "file_size"), Description: first(m, "description", "remark", "note"), Fee: fee, FeeKnown: feeKnown, Unlocked: boolean(m, "unlocked", "is_unlocked"), PanType: first(m, "pan_type", "website", "storage"), Source: first(m, "source", "channel", "origin")}
+	fee, feeKnown := integer(m, "unlock_points", "fee", "price", "cost", "points", "coin")
+	subtitle := joinList(first(m, "subtitle_language"), first(m, "subtitle_type"))
+	r := telegram.Resource{
+		ID:          id,
+		UnlockSlug:  id,
+		Title:       defaultString(first(m, "title", "name", "resource_name"), "未命名资源"),
+		Quality:     first(m, "video_resolution", "quality", "resolution", "video_quality"),
+		Size:        first(m, "share_size", "size", "file_size"),
+		Subtitle:    subtitle,
+		Description: first(m, "description", "remark", "note"),
+		Fee:         fee,
+		FeeKnown:    feeKnown,
+		Unlocked:    boolean(m, "unlocked", "is_unlocked"),
+		PanType:     first(m, "pan_type", "website", "storage"),
+		Source:      first(m, "source", "channel", "origin"),
+	}
 	return r
 }
+
+// first returns the first non-empty value among the given keys, joining list values.
 func first(m map[string]any, keys ...string) string {
 	for _, k := range keys {
 		if v, ok := m[k]; ok && v != nil {
-			s := strings.TrimSpace(fmt.Sprint(v))
-			if s != "" && s != "<nil>" {
+			if s := asText(v); s != "" && s != "<nil>" {
 				return s
 			}
 		}
 	}
 	return ""
+}
+
+// asText converts a scalar or list value to a compact string.
+func asText(v any) string {
+	switch x := v.(type) {
+	case string:
+		return strings.TrimSpace(x)
+	case []any:
+		parts := make([]string, 0, len(x))
+		for _, e := range x {
+			if s := asText(e); s != "" {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, " · ")
+	case []string:
+		parts := make([]string, 0, len(x))
+		for _, s := range x {
+			if strings.TrimSpace(s) != "" {
+				parts = append(parts, strings.TrimSpace(s))
+			}
+		}
+		return strings.Join(parts, " · ")
+	default:
+		return strings.TrimSpace(fmt.Sprint(x))
+	}
+}
+
+func joinList(parts ...string) string {
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			out = append(out, strings.TrimSpace(p))
+		}
+	}
+	return strings.Join(out, " · ")
+}
+
+// panTypeRank orders pan types: 115=0, ed2k=1, others=2 (filtered out).
+func panTypeRank(p string) int {
+	p = strings.ToLower(strings.TrimSpace(p))
+	switch {
+	case strings.Contains(p, "115"):
+		return 0
+	case strings.Contains(p, "ed2k"):
+		return 1
+	default:
+		return 2
+	}
+}
+
+// isOfficialGroup detects resources from official release groups.
+func isOfficialGroup(r telegram.Resource) bool {
+	s := strings.ToLower(r.Source + " " + r.Title)
+	return strings.Contains(s, "官组") || strings.Contains(s, "官方") || strings.Contains(s, "official")
+}
+
+// filterAndSortResources keeps only 115/ed2k resources and orders them:
+// 115 before ed2k, official groups before others, preserving original order.
+func filterAndSortResources(all []telegram.Resource) []telegram.Resource {
+	filtered := make([]telegram.Resource, 0, len(all))
+	for _, r := range all {
+		if panTypeRank(r.PanType) < 2 {
+			filtered = append(filtered, r)
+		}
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		pi, pj := panTypeRank(filtered[i].PanType), panTypeRank(filtered[j].PanType)
+		if pi != pj {
+			return pi < pj
+		}
+		oi, oj := isOfficialGroup(filtered[i]), isOfficialGroup(filtered[j])
+		if oi != oj {
+			return oi
+		}
+		return false
+	})
+	return filtered
+}
+
+func isNon115Link(s string) bool {
+	l := strings.ToLower(strings.TrimSpace(s))
+	return strings.HasPrefix(l, "ed2k:") || strings.HasPrefix(l, "magnet:")
 }
 func integer(m map[string]any, keys ...string) (int, bool) {
 	s := first(m, keys...)
@@ -248,6 +348,9 @@ func (a TransferAdapter) Transfer115(ctx context.Context, userID int64, cfg stor
 	}
 	share := p115.Share{ShareCode: r.ShareCode, ReceiveCode: r.ReceiveCode}
 	if share.ShareCode == "" {
+		if strings.TrimSpace(r.ShareURL) == "" || isNon115Link(r.ShareURL) {
+			return "", errors.New("该资源不是 115 分享（可能是 ed2k/磁力），无法转存到 115")
+		}
 		share, err = p115.ParseShare(r.ShareURL)
 		if err != nil {
 			return "", err

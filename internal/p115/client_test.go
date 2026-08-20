@@ -20,6 +20,37 @@ func TestParseShare(t *testing.T) {
 	}
 }
 
+func TestParseShareFormats(t *testing.T) {
+	cases := []struct {
+		input     string
+		shareCode string
+		pwd       string
+		wantErr   bool
+	}{
+		{"https://115.com/s/Abc123?password=P9", "Abc123", "P9", false},
+		{"https://www.115cdn.com/share/xyz789", "xyz789", "", false},
+		{"anxia.com/s/code12345", "code12345", "", false},
+		{"115://sharecode123", "sharecode123", "", false},
+		{"anxia://sharecode456", "sharecode456", "", false},
+		{"share_code=abc12345", "abc12345", "", false},
+		{"裸码 abcdefghij", "abcdefghij", "", false},
+		{"ed2k://abc123", "", "", true},
+		{"magnet:?xt=urn:btih:abc", "", "", true},
+	}
+	for _, c := range cases {
+		s, err := ParseShare(c.input)
+		if c.wantErr {
+			if err == nil {
+				t.Fatalf("input=%q expected error, got %#v", c.input, s)
+			}
+			continue
+		}
+		if err != nil || s.ShareCode != c.shareCode || s.ReceiveCode != c.pwd {
+			t.Fatalf("input=%q share=%#v err=%v", c.input, s, err)
+		}
+	}
+}
+
 func TestListPaginationRootAndReceiveStrategies(t *testing.T) {
 	var receiveBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

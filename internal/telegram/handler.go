@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -53,6 +55,7 @@ type TMDBService interface {
 
 type Resource struct {
 	ID, Title, Quality, Size, Description string
+	Subtitle                              string
 	PanType, Source                       string
 	ShareURL, ShareCode, ReceiveCode      string
 	UnlockSlug                            string
@@ -64,6 +67,7 @@ type Resource struct {
 type ResourcePage struct {
 	Items            []Resource
 	Page, TotalPages int
+	Total            int
 }
 
 type HDHiveService interface {
@@ -609,7 +613,11 @@ func (h *Handler) showResources(ctx context.Context, userID, chatID int64, item 
 		"resources_found", len(result.Items),
 		"total_pages", result.TotalPages,
 	)
-	out := View{Body: FormatResources(result)}
+	body := FormatResources(result)
+	if item.Title != "" {
+		body = "🎬 <b>" + html.EscapeString(item.Title) + "</b>\n\n" + body
+	}
+	out := View{Body: body}
 	for _, r := range result.Items {
 		token, _ := h.sessions.BindCallback(userID, "detail", r.ID)
 		out.Buttons = append(out.Buttons, []Button{CallbackButton(FormatResourceButtonText(r), token, "")})
@@ -876,16 +884,51 @@ func parseIDArg(s string) (int64, string, error) {
 	return id, rest, err
 }
 func encodeTMDB(i TMDBItem) string {
-	return fmt.Sprintf("%d|%s|%s|%s|%s", i.ID, i.MediaType, strings.ReplaceAll(i.Title, "|", " "), strings.ReplaceAll(i.OriginalTitle, "|", " "), i.ReleaseDate)
+	return strings.Join([]string{
+		strconv.FormatInt(i.ID, 10),
+		cleanField(i.MediaType),
+		cleanField(i.Title),
+		cleanField(i.OriginalTitle),
+		cleanField(i.ReleaseDate),
+		cleanField(i.PosterPath),
+		strconv.FormatFloat(i.VoteAverage, 'f', 1, 64),
+		cleanField(i.Overview),
+	}, "|")
 }
 func decodeTMDB(v string) TMDBItem {
 	var i TMDBItem
 	p := strings.Split(v, "|")
-	if len(p) >= 5 {
+	if len(p) >= 1 {
 		fmt.Sscan(p[0], &i.ID)
-		i.MediaType, i.Title, i.OriginalTitle, i.ReleaseDate = p[1], p[2], p[3], p[4]
+	}
+	if len(p) >= 2 {
+		i.MediaType = p[1]
+	}
+	if len(p) >= 3 {
+		i.Title = p[2]
+	}
+	if len(p) >= 4 {
+		i.OriginalTitle = p[3]
+	}
+	if len(p) >= 5 {
+		i.ReleaseDate = p[4]
+	}
+	if len(p) >= 6 {
+		i.PosterPath = p[5]
+	}
+	if len(p) >= 7 {
+		fmt.Sscan(p[6], &i.VoteAverage)
+	}
+	if len(p) >= 8 {
+		i.Overview = p[7]
 	}
 	return i
+}
+func cleanField(s string) string {
+	s = strings.ReplaceAll(s, "|", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return s
 }
 func encodeResourcePage(i TMDBItem, p int) string {
 	return fmt.Sprintf("%d;%s;%s;%s;%d", i.ID, i.MediaType, strings.ReplaceAll(i.Title, ";", " "), i.ReleaseDate, p)

@@ -83,17 +83,28 @@ type Client struct {
 }
 
 var (
-	urlShareRE  = regexp.MustCompile(`(?i)(?:115\.com|115cdn\.com|anxia\.com)/s/([a-zA-Z0-9]+)`)
+	// https://115.com/s/xxxxx、https://www.115cdn.com/share/xxxxx、anxia.com/s/xxxxx 等
+	urlShareRE  = regexp.MustCompile(`(?i)(?:https?://)?(?:www[.])?(?:115[.]com|115cdn[.]com|anxia[.]com)/(?:s|share)/([a-zA-Z0-9]{6,})`)
 	queryCodeRE = regexp.MustCompile(`(?i)(?:[?&](?:password|pwd|receive_code|r)=)([a-zA-Z0-9]+)`)
-	textShareRE = regexp.MustCompile(`(?i)(?:share[_-]?code|码)[=:：\s]*([a-zA-Z0-9]{5,})`)
+	textShareRE = regexp.MustCompile(`(?i)(?:share[_-]?code|分享码|码)[=:：\s]*([a-zA-Z0-9]{5,})`)
 	textPwdRE   = regexp.MustCompile(`(?i)(?:password|pwd|访问码|提取码)[=:：\s]*([a-zA-Z0-9]+)`)
-	bareRE      = regexp.MustCompile(`^[a-zA-Z0-9]{8,16}$`)
+	bareRE      = regexp.MustCompile(`^[a-zA-Z0-9]{6,32}$`)
+	schemeRE    = regexp.MustCompile(`^([a-z0-9][a-z0-9+.-]*)://`)
 )
 
 func ParseShare(text string) (Share, error) {
 	s, _ := url.QueryUnescape(strings.TrimSpace(text))
 	if s == "" {
 		return Share{}, &Error{Kind: KindInvalidShare, Message: "empty share link"}
+	}
+	// 剥离 115://、anxia:// 等自定义分享协议，便于按 URL / 裸码继续解析
+	if m := schemeRE.FindStringSubmatch(s); m != nil {
+		switch strings.ToLower(m[1]) {
+		case "115", "anxia", "115pan", "hdhive", "radar":
+			if rest := strings.TrimSpace(s[len(m[0]):]); rest != "" {
+				s = rest
+			}
+		}
 	}
 	if m := urlShareRE.FindStringSubmatch(s); m != nil {
 		pwd := ""
@@ -112,7 +123,7 @@ func ParseShare(text string) (Share, error) {
 	if bareRE.MatchString(s) {
 		return Share{ShareCode: s}, nil
 	}
-	return Share{}, &Error{Kind: KindInvalidShare, Message: "unrecognized share link"}
+	return Share{}, &Error{Kind: KindInvalidShare, Message: "unrecognized share link: " + redact(s)}
 }
 
 func New(cookie string, doer HTTPDoer, logger Logger) (*Client, error) {

@@ -193,6 +193,9 @@ func BuildResourceDetailView(r Resource, mediaTitle string) View {
 	if r.Source != "" {
 		fmt.Fprintf(&b, "来源    %s\n", html.EscapeString(r.Source))
 	}
+	if r.Subtitle != "" {
+		fmt.Fprintf(&b, "字幕    %s\n", html.EscapeString(r.Subtitle))
+	}
 	if r.FeeKnown {
 		if r.Fee == 0 {
 			b.WriteString("费用    免费\n")

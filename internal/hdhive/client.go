@@ -350,19 +350,25 @@ func digUnlock(v any, r *UnlockResult) {
 	switch x := v.(type) {
 	case map[string]any:
 		if r.ShareCode == "" {
-			r.ShareCode = stringValue(x["share_code"])
+			for _, k := range []string{"share_code", "shareCode", "share_id", "share"} {
+				if s := stringValue(x[k]); s != "" {
+					r.ShareCode = s
+					break
+				}
+			}
 		}
 		if r.ReceiveCode == "" {
-			for _, k := range []string{"access_code", "receive_code", "password"} {
+			for _, k := range []string{"access_code", "accessCode", "receive_code", "receiveCode", "password", "pwd"} {
 				if s := stringValue(x[k]); s != "" {
 					r.ReceiveCode = s
 					break
 				}
 			}
 		}
-		for _, k := range []string{"full_url", "url", "share_url", "link", "real_115_url"} {
-			if r.URL == "" {
-				r.URL = stringValue(x[k])
+		for _, k := range []string{"full_url", "url", "share_url", "shareUrl", "link", "real_115_url", "115_url", "url_115", "115_link", "share_link", "shareLink"} {
+			if s := stringValue(x[k]); s != "" && !isNon115Link(s) {
+				r.URL = s
+				break
 			}
 		}
 		for _, y := range x {
@@ -372,5 +378,20 @@ func digUnlock(v any, r *UnlockResult) {
 		for _, y := range x {
 			digUnlock(y, r)
 		}
+	case string:
+		// 深扫：任意字符串值若含 115 域名且尚未提取到链接，则作为分享链接
+		if r.URL == "" && is115Link(x) {
+			r.URL = x
+		}
 	}
+}
+
+func is115Link(s string) bool {
+	l := strings.ToLower(s)
+	return strings.Contains(l, "115.com/") || strings.Contains(l, "115cdn.com/") || strings.Contains(l, "anxia.com/")
+}
+
+func isNon115Link(s string) bool {
+	l := strings.ToLower(strings.TrimSpace(s))
+	return strings.HasPrefix(l, "ed2k:") || strings.HasPrefix(l, "magnet:")
 }

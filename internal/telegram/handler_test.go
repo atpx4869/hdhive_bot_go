@@ -144,4 +144,19 @@ func TestPaidUnlockRequiresConfirmationAndNoDuplicate(t *testing.T) {
 	}
 }
 
+func TestTMDBEncodeDecodeRoundTrip(t *testing.T) {
+	item := TMDBItem{ID: 123, MediaType: "movie", Title: "千与千寻", OriginalTitle: "Spirited Away", ReleaseDate: "2001-07-20", PosterPath: "/abc123.jpg", VoteAverage: 8.6, Overview: "少女千寻误入神隐世界。"}
+	enc := encodeTMDB(item)
+	dec := decodeTMDB(enc)
+	if dec.ID != item.ID || dec.MediaType != item.MediaType || dec.Title != item.Title || dec.OriginalTitle != item.OriginalTitle || dec.ReleaseDate != item.ReleaseDate || dec.PosterPath != item.PosterPath || dec.Overview != item.Overview {
+		t.Fatalf("dec=%+v", dec)
+	}
+	if dec.VoteAverage < 8.59 || dec.VoteAverage > 8.61 {
+		t.Fatalf("vote=%f", dec.VoteAverage)
+	}
+	if dec.PosterURL() == "" {
+		t.Fatal("poster url empty")
+	}
+}
+
 var _ = errors.New

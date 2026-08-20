@@ -41,7 +41,10 @@ func (h *Handler) receive115CID(ctx context.Context, userID, chatID int64, targe
 	}
 	h.sessions.ClearInteraction(userID)
 	h.log(ctx, userID, "set115", map[bool]string{true: "root", false: "configured"}[targetCID == "0"])
-	return h.send(ctx, chatID, "✅ 115 配置已加密保存。")
+	return h.messenger.Send(ctx, chatID, Outgoing{
+		Text:          "✅ 115 配置已加密保存。",
+		ReplyKeyboard: h.buildMainKeyboard(userID),
+	})
 }
 
 func (h *Handler) change115CID(ctx context.Context, userID, chatID int64, targetCID string) error {
@@ -66,7 +69,10 @@ func (h *Handler) change115CID(ctx context.Context, userID, chatID int64, target
 		target = fmt.Sprintf("目录 %s", targetCID)
 	}
 	h.log(ctx, userID, "change115cid", targetCID)
-	return h.send(ctx, chatID, fmt.Sprintf("✅ 115 转存目标已更新为：%s", target))
+	return h.messenger.Send(ctx, chatID, Outgoing{
+		Text:          fmt.Sprintf("✅ 115 转存目标已更新为：%s", target),
+		ReplyKeyboard: h.buildMainKeyboard(userID),
+	})
 }
 
 func normalize115Cookie(cookie string) string {

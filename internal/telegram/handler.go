@@ -88,8 +88,11 @@ type Services struct {
 
 type Button struct{ Text, CallbackData string }
 type Outgoing struct {
-	Text    string
-	Buttons [][]Button
+	Text              string
+	HTML              bool       // Use HTML parse mode (default: auto-detect)
+	Buttons           [][]Button // Inline keyboard (attached to message)
+	ReplyKeyboard     [][]string // Reply keyboard (bottom bar, persists)
+	HideReplyKeyboard bool       // Remove reply keyboard
 }
 type Messenger interface {
 	Send(context.Context, int64, Outgoing) error
@@ -173,6 +176,19 @@ func (h *Handler) invalidateAuthCache(userID int64) {
 	h.authCacheMu.Unlock()
 }
 
+// buildMainKeyboard builds the persistent reply keyboard for authorized users.
+func (h *Handler) buildMainKeyboard(userID int64) [][]string {
+	if h.isAdmin(userID) {
+		return [][]string{
+			{"🔍 搜索", "☁️ 我的115", "📊 状态"},
+			{"👥 用户", "📋 日志", "❓ 帮助"},
+		}
+	}
+	return [][]string{
+		{"🔍 搜索", "☁️ 我的115", "📊 状态"},
+	}
+}
+
 // ──────────────────────── Message Routing ────────────────────────
 
 func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text string) error {
@@ -222,7 +238,12 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 				p115Target = cfg.TargetCID
 			}
 		}
-		return h.send(ctx, chatID, StatusPanel(userID, h.isAdmin(userID), h.authorized(ctx, userID), p115Enabled, p115Target))
+		auth := h.authorized(ctx, userID)
+		out := Outgoing{Text: StatusPanel(userID, h.isAdmin(userID), auth, p115Enabled, p115Target)}
+		if auth {
+			out.ReplyKeyboard = h.buildMainKeyboard(userID)
+		}
+		return h.messenger.Send(ctx, chatID, out)
 	case "/myid":
 		return h.send(ctx, chatID, fmt.Sprintf("🆔 你的 Telegram User ID：\n\n<code>%d</code>", userID))
 	case "/authorize", "/revoke", "/users", "/note", "/logs", "/unlockreset", "/enable115", "/disable115", "/unknown", "/export", "/import":
@@ -239,13 +260,19 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 	switch cmd {
 	case "/set115":
 		if chatID != userID {
-			return h.send(ctx, chatID, "为保护 Cookie，/set115 只能在 Bot 私聊中使用。")
+			return h.send(ctx, chatID, "🔒 为保护 Cookie，/set115 只能在 Bot 私聊中使用。")
 		}
 		_ = h.sessions.Set(userID, "set115_cookie", nil)
-		return h.send(ctx, chatID, "🍪 请发送完整的 115 Cookie\n\n应包含 <code>UID</code>、<code>CID</code>、<code>SEID</code>\n\n⚠️ Bot 会尝试立即删除该消息")
+		return h.messenger.Send(ctx, chatID, Outgoing{
+			Text:          "🍪 请发送完整的 115 Cookie\n\n应包含 <code>UID</code>、<code>CID</code>、<code>SEID</code>\n\n⚠️ Bot 会尝试立即删除该消息",
+			ReplyKeyboard: [][]string{{"❌ 取消"}},
+		})
 	case "/cancel":
 		h.sessions.ClearInteraction(userID)
-		return h.send(ctx, chatID, "✅ 已取消当前操作。")
+		return h.messenger.Send(ctx, chatID, Outgoing{
+			Text:          "✅ 已取消当前操作。",
+			ReplyKeyboard: h.buildMainKeyboard(userID),
+		})
 	case "/unset115":
 		if h.isAdmin(userID) {
 			return h.send(ctx, chatID, "管理员不能通过 Bot 删除自己的 115 配置。")
@@ -296,6 +323,31 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 		changeBtn, _ := h.sessions.BindCallback(userID, "change115cid", "")
 		buttons = append(buttons, Button{Text: "📂 修改目标目录", CallbackData: changeBtn})
 		return h.messenger.Send(ctx, chatID, Outgoing{Text: text, Buttons: [][]Button{buttons}})
+	}
+
+	// Handle reply keyboard button taps
+	switch text {
+	case "🔍 搜索":
+		return h.messenger.Send(ctx, chatID, Outgoing{
+			Text:          "🔍 请输入影视名称",
+			ReplyKeyboard: h.buildMainKeyboard(userID),
+		})
+	case "☁️ 我的115":
+		return h.HandleMessage(ctx, userID, chatID, messageID, "/my115")
+	case "📊 状态":
+		return h.HandleMessage(ctx, userID, chatID, messageID, "/start")
+	case "👥 用户":
+		if h.isAdmin(userID) {
+			return h.HandleMessage(ctx, userID, chatID, messageID, "/users")
+		}
+	case "📋 日志":
+		if h.isAdmin(userID) {
+			return h.HandleMessage(ctx, userID, chatID, messageID, "/logs")
+		}
+	case "❓ 帮助":
+		return h.HandleMessage(ctx, userID, chatID, messageID, "/start")
+	case "❌ 取消":
+		return h.HandleMessage(ctx, userID, chatID, messageID, "/cancel")
 	}
 
 	// Check for active interaction sessions

@@ -21,7 +21,23 @@ type BotMessenger struct {
 
 func (m BotMessenger) Send(ctx context.Context, chatID int64, out Outgoing) error {
 	params := &gbot.SendMessageParams{ChatID: chatID, Text: out.Text}
-	if len(out.Buttons) > 0 {
+	// Auto-detect HTML: use parse mode if message contains HTML tags
+	if out.HTML || strings.Contains(out.Text, "<b>") || strings.Contains(out.Text, "<code>") || strings.Contains(out.Text, "<i>") {
+		params.ParseMode = "HTML"
+	}
+	if out.HideReplyKeyboard {
+		params.ReplyMarkup = models.ReplyKeyboardRemove{RemoveKeyboard: true}
+	} else if len(out.ReplyKeyboard) > 0 {
+		rows := make([][]models.KeyboardButton, 0, len(out.ReplyKeyboard))
+		for _, row := range out.ReplyKeyboard {
+			btns := make([]models.KeyboardButton, 0, len(row))
+			for _, text := range row {
+				btns = append(btns, models.KeyboardButton{Text: text})
+			}
+			rows = append(rows, btns)
+		}
+		params.ReplyMarkup = models.ReplyKeyboardMarkup{Keyboard: rows, ResizeKeyboard: true}
+	} else if len(out.Buttons) > 0 {
 		rows := make([][]models.InlineKeyboardButton, 0, len(out.Buttons))
 		for _, row := range out.Buttons {
 			buttons := make([]models.InlineKeyboardButton, 0, len(row))

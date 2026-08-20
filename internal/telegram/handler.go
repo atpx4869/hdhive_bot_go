@@ -175,42 +175,41 @@ func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text str
 		"cmd", cmd,
 		"is_admin", h.isAdmin(userID),
 	)
-	// 处理 ReplyKeyboard 按钮
-	switch text {
-	case "🔍 搜索":
-		return h.send(ctx, chatID, "🔍 请直接输入影视关键词进行搜索。\n\n例如：<code>流浪地球</code>")
-	case "🆔 我的ID":
-		return h.send(ctx, chatID, fmt.Sprintf("🆔 你的 Telegram User ID：<b><code>%d</code></b>", userID))
-	case "🍪 115配置":
-		if !h.authorized(ctx, userID) {
-			return h.send(ctx, chatID, "🔒 你尚未获得授权，请将 <code>/myid</code> 的结果发送给管理员。")
-		}
-		return h.send(ctx, chatID, "🍪 请发送 115 Cookie。\n\n使用 <code>/set115</code> 指令，或直接发送 Cookie。")
-	case "📋 115状态":
-		if !h.authorized(ctx, userID) {
-			return h.send(ctx, chatID, "🔒 你尚未获得授权。")
-		}
-		if h.services.Accounts == nil {
-			return h.send(ctx, chatID, "⚠️ 115 服务未配置。")
-		}
-		cfg, err := h.services.Accounts.GetP115Config(ctx, userID)
-		if err != nil {
-			return h.send(ctx, chatID, "🍪 尚未配置 115 Cookie。\n\n使用 <code>/set115</code> 进行配置。")
-		}
-		return h.send(ctx, chatID, "🍪 115 配置状态："+MaskSecret(cfg.Cookie))
-	case "❌ 取消":
-		h.sessions.ClearInteraction(userID)
-		return h.send(ctx, chatID, "🚫 <b>已取消</b> 当前操作。")
-	}
 	switch cmd {
-	case "/start":
+	case "/start", "/help":
+		// Remove old ReplyKeyboard if present
+		if bm, ok := h.messenger.(BotMessenger); ok {
+			_ = bm.RemoveReplyKeyboard(ctx, chatID)
+		}
 		authorized := h.authorized(ctx, userID)
 		has115 := false
 		if h.services.Accounts != nil {
 			_, err := h.services.Accounts.GetP115Config(ctx, userID)
 			has115 = err == nil
 		}
-		_, err := h.messenger.Send(ctx, chatID, View{Body: StatusPanel(userID, h.isAdmin(userID), authorized, has115), Buttons: homeButtons(userID, h.isAdmin(userID))})
+		view := BuildHomeView(userID, h.isAdmin(userID), authorized, has115)
+		// Set callback tokens
+		for i, row := range view.Buttons {
+			for j, btn := range row {
+				if btn.CallbackData == "noop" {
+					switch btn.Text {
+					case "🔎 开始搜索":
+						t, _ := h.sessions.BindCallback(userID, "noop", "search_hint")
+						view.Buttons[i][j].CallbackData = t
+					case "⚙️ 115 设置":
+						t, _ := h.sessions.BindCallback(userID, "settings_115", "")
+						view.Buttons[i][j].CallbackData = t
+					case "❓ 使用帮助":
+						t, _ := h.sessions.BindCallback(userID, "noop", "help")
+						view.Buttons[i][j].CallbackData = t
+					case "🛠 管理面板":
+						t, _ := h.sessions.BindCallback(userID, "noop", "admin")
+						view.Buttons[i][j].CallbackData = t
+					}
+				}
+			}
+		}
+		_, err := h.messenger.Send(ctx, chatID, view)
 		return err
 	case "/cancel":
 		h.sessions.ClearInteraction(userID)
@@ -458,6 +457,15 @@ func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) erro
 	}
 	switch cb.Action {
 	case "noop":
+		// Show contextual hint based on value
+		switch cb.Value {
+		case "search_hint":
+			_ = h.messenger.AnswerCallback(ctx, cctx.CallbackID, CallbackAnswer{Text: "请直接发送影视名称", ShowAlert: true})
+		case "help":
+			_ = h.messenger.AnswerCallback(ctx, cctx.CallbackID, CallbackAnswer{Text: "直接发送影视关键词即可搜索", ShowAlert: true})
+		case "admin":
+			_ = h.messenger.AnswerCallback(ctx, cctx.CallbackID, CallbackAnswer{Text: "请使用管理命令", ShowAlert: true})
+		}
 		return nil
 	case "tmdb":
 		return h.showMovieCard(ctx, cctx.UserID, cctx.ChatID, decodeTMDB(cb.Value))
@@ -493,8 +501,9 @@ func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) erro
 		}
 		_, _ = h.messenger.Send(ctx, cctx.ChatID, ViewFromText("🚫 已取消解锁。"))
 		return nil
+	case "settings_115":
+		return h.show115Settings(ctx, cctx.UserID, cctx.ChatID)
 	case "transfer":
-		return h.transfer(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "new_search":
 		_, _ = h.messenger.Send(ctx, cctx.ChatID, ViewFromText("🔍 请发送新的搜索关键词"))
 		return nil
@@ -505,6 +514,50 @@ func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) erro
 }
 
 // closeCard clears the keyboard and marks the message as closed.
+func (h *Handler) show115Settings(ctx context.Context, userID, chatID int64) error {
+	if h.services.Accounts == nil {
+		_, err := h.renderOrCreate(ctx, chatID, View{
+			Body: "⚠️ 115 服务未配置。",
+			Buttons: [][]Button{
+				{CallbackButton("‹ 返回首页", "noop", "")},
+			},
+		})
+		return err
+	}
+	cfg, err := h.services.Accounts.GetP115Config(ctx, userID)
+	if err != nil {
+		// Not configured
+		view := View{
+			Body: "🍪 <b>115 设置</b>\n\n尚未配置 115 Cookie。\n\n使用 <code>/set115</code> 命令配置。",
+			Buttons: [][]Button{
+				{CallbackButton("‹ 返回首页", "noop", "")},
+				{CallbackButton("✕ 关闭", "close", "")},
+			},
+		}
+		_, err := h.renderOrCreate(ctx, chatID, view)
+		return err
+	}
+	// Show status
+	status := "✅ 已配置"
+	if !cfg.Enabled {
+		status = "⏸ 已停用"
+	}
+	target := "默认目录"
+	if cfg.TargetCID != "" && cfg.TargetCID != "0" {
+		target = fmt.Sprintf("目录 %s", cfg.TargetCID)
+	}
+	var b strings.Builder
+	b.WriteString("🍪 <b>115 设置</b>\n\n")
+	fmt.Fprintf(&b, "状态：%s\n", status)
+	fmt.Fprintf(&b, "目标：%s\n", target)
+	buttons := [][]Button{
+		{CallbackButton("‹ 返回首页", "noop", ""), CallbackButton("✕ 关闭", "close", "")},
+	}
+	view := View{Body: b.String(), Buttons: buttons}
+	_, err = h.renderOrCreate(ctx, chatID, view)
+	return err
+}
+
 func (h *Handler) closeCard(ctx context.Context, cctx CallbackContext) error {
 	_, err := h.messenger.Render(ctx, MessageRef{
 		ChatID:    cctx.ChatID,

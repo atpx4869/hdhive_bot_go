@@ -88,7 +88,7 @@ func Load() (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", envHTTPProxy, err)
 		}
 	}
-	if cfg.HTTPTimeout, err = durationEnv("HTTP_TIMEOUT", 30*time.Second); err != nil {
+	if cfg.HTTPTimeout, err = durationEnv("HTTP_TIMEOUT", 20*time.Second); err != nil {
 		return cfg, err
 	}
 	if cfg.SessionTTL, err = durationEnv("SESSION_TTL", 2*time.Hour); err != nil {

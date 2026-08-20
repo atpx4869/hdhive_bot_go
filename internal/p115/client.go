@@ -251,8 +251,9 @@ func (c *Client) Receive(ctx context.Context, share Share, opts ReceiveOptions) 
 
 func (c *Client) snapRoot(ctx context.Context, share Share) ([]map[string]any, error) {
 	var out []map[string]any
-	for offset := 0; ; offset += c.pageSize {
-		items, err := c.snapPage(ctx, share, "0", c.pageSize, offset)
+	const maxPages = 20 // 最多 20 页 = 2000 条，防止接口异常导致无限分页
+	for page := 0; page < maxPages; page++ {
+		items, err := c.snapPage(ctx, share, "0", c.pageSize, page*c.pageSize)
 		if err != nil {
 			return nil, err
 		}
@@ -261,6 +262,7 @@ func (c *Client) snapRoot(ctx context.Context, share Share) ([]map[string]any, e
 			return out, nil
 		}
 	}
+	return out, nil
 }
 
 func (c *Client) snapPage(ctx context.Context, s Share, cid string, limit, offset int) ([]map[string]any, error) {

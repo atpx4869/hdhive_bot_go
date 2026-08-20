@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -39,8 +38,6 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, version st
 	)
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	var pollingErr error
-	var pollingErrMu sync.Mutex
 	logger.Info("initializing encryption")
 	crypt, err := appcrypto.New(cfg.EncryptionKey)
 	if err != nil {
@@ -77,13 +74,9 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, version st
 		gbot.WithHTTPClient(time.Minute, botHTTPClient),
 		gbot.WithAllowedUpdates(gbot.AllowedUpdates{"message", "callback_query"}),
 		gbot.WithErrorsHandler(func(err error) {
-			pollingErrMu.Lock()
-			if pollingErr == nil {
-				pollingErr = err
-			}
-			pollingErrMu.Unlock()
+			// 只记录错误；go-telegram/bot 会自动重试可恢复的网络错误（如 unexpected EOF），
+			// 不要在这里 cancelRun，否则 worker 退出会丢失内存中的 session/token。
 			logger.Error("telegram polling error", "error", err)
-			cancelRun()
 		}),
 		gbot.WithDefaultHandler(func(ctx context.Context, bot *gbot.Bot, update *models.Update) {
 			if handler != nil {
@@ -120,17 +113,8 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, version st
 	}
 	logger.Info("telegram worker started")
 	bot.Start(runCtx)
-	if ctx.Err() != nil {
-		logger.Info("telegram worker stopped", "reason", ctx.Err())
-		return nil
-	}
-	pollingErrMu.Lock()
-	err = pollingErr
-	pollingErrMu.Unlock()
-	if err != nil {
-		return fmt.Errorf("telegram polling failed: %w", err)
-	}
-	return fmt.Errorf("telegram polling returned unexpectedly")
+	logger.Info("telegram worker stopped")
+	return nil
 }
 
 func RunWithSignals(cfg config.Config, logger *slog.Logger, version string) error {

@@ -133,7 +133,7 @@ func TestPaidUnlockRequiresConfirmationAndNoDuplicate(t *testing.T) {
 	if err := h.HandleCallback(context.Background(), CallbackContext{UserID: 1, ChatID: 1, MessageID: 100, CallbackID: "cb", CallbackData: token}); err != nil {
 		t.Fatal(err)
 	}
-	if hive.unlocks != 0 || len(m.sent) == 0 || !strings.Contains(m.sent[len(m.sent)-1].Body, "❓ 确认解锁此资源？") {
+	if hive.unlocks != 0 || len(m.sent) == 0 || !strings.Contains(m.sent[len(m.sent)-1].Body, "确认解锁") || !strings.Contains(m.sent[len(m.sent)-1].Body, "将消耗 <b>5 积分</b>") {
 		t.Fatalf("unlocks=%d sent=%+v", hive.unlocks, m.sent)
 	}
 	if err := h.HandleCallback(context.Background(), CallbackContext{UserID: 1, ChatID: 1, MessageID: 100, CallbackID: "cb", CallbackData: token}); err != nil {

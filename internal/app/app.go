@@ -104,6 +104,20 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if _, err := bot.DeleteWebhook(setupCtx, &gbot.DeleteWebhookParams{DropPendingUpdates: true}); err != nil {
 		return fmt.Errorf("delete telegram webhook: %w", err)
 	}
+	// 注册Bot命令
+	commands := []models.BotCommand{
+		{Command: "start", Description: "开始使用"},
+		{Command: "myid", Description: "查看你的ID"},
+		{Command: "set115", Description: "配置115 Cookie"},
+		{Command: "unset115", Description: "删除115配置"},
+		{Command: "my115", Description: "查看115状态"},
+		{Command: "cancel", Description: "取消当前操作"},
+	}
+	if _, err := bot.SetMyCommands(setupCtx, &gbot.SetMyCommandsParams{Commands: commands}); err != nil {
+		logger.Warn("failed to set bot commands", "error", err)
+	} else {
+		logger.Info("bot commands registered", "count", len(commands))
+	}
 	logger.Info("telegram worker started")
 	bot.Start(runCtx)
 	if ctx.Err() != nil {

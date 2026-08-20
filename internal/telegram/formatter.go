@@ -178,9 +178,11 @@ func FormatUsersPage(users []store.User, page int, hasMore bool) string {
 			icon = "🟢"
 			status = "已授权"
 		}
-		fmt.Fprintf(&b, "%s <code>%d</code>  %s", icon, u.ID, status)
+		// 昵称优先，无昵称显示 ID
+		name := userDisplayName(u.ID, u.Note)
+		fmt.Fprintf(&b, "%s %s  %s", icon, name, status)
 		if u.Note != "" {
-			fmt.Fprintf(&b, "  ·  %s", u.Note)
+			fmt.Fprintf(&b, "  <i>(%d)</i>", u.ID)
 		}
 		b.WriteByte('\n')
 	}
@@ -190,9 +192,17 @@ func FormatUsersPage(users []store.User, page int, hasMore bool) string {
 	return strings.TrimSpace(b.String())
 }
 
+// userDisplayName 返回用户显示名：有昵称用昵称，无昵称用 ID
+func userDisplayName(id int64, note string) string {
+	if note != "" {
+		return note
+	}
+	return fmt.Sprintf("<code>%d</code>", id)
+}
+
 // ──────────────────────── Logs Page ────────────────────────
 
-func FormatLogsPage(logs []store.ActivityLog, page int, hasMore bool) string {
+func FormatLogsPage(logs []store.ActivityLog, page int, hasMore bool, userNames map[int64]string) string {
 	if len(logs) == 0 {
 		return "📋 暂无活动日志"
 	}
@@ -200,9 +210,10 @@ func FormatLogsPage(logs []store.ActivityLog, page int, hasMore bool) string {
 	fmt.Fprintf(&b, "<b>📋 活动日志</b>  <i>第 %d 页</i>\n", page)
 	b.WriteString("───────────────\n")
 	for _, l := range logs {
-		// Action icons
 		icon := actionIcon(l.Action)
-		fmt.Fprintf(&b, "%s <code>%d</code>  %s", icon, l.UserID, l.Action)
+		// 昵称优先，无昵称显示 ID
+		name := userDisplayName(l.UserID, userNames[l.UserID])
+		fmt.Fprintf(&b, "%s %s  %s", icon, name, l.Action)
 		if l.Status != "" {
 			fmt.Fprintf(&b, "  [%s]", l.Status)
 		}

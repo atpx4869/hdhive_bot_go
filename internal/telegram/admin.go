@@ -94,7 +94,9 @@ func (h *Handler) handleAdmin(ctx context.Context, actor, chatID int64, cmd, arg
 		if hasMore {
 			logs = logs[:logPageSize]
 		}
-		out := Outgoing{Text: FormatLogsPage(logs, page, hasMore)}
+		// 构建用户昵称映射
+		userNames := h.buildUserNames(ctx)
+		out := Outgoing{Text: FormatLogsPage(logs, page, hasMore, userNames)}
 		var buttons []Button
 		if page > 1 {
 			prevToken, _ := h.sessions.BindCallback(actor, "admin_logs", fmt.Sprintf("%d", page-1))
@@ -172,12 +174,14 @@ func (h *Handler) handleAdmin(ctx context.Context, actor, chatID int64, cmd, arg
 			return h.send(ctx, chatID, fmt.Sprintf("查询失败：%s", err.Error()))
 		}
 		if len(records) == 0 {
-			return h.send(ctx, chatID, "当前没有 unknown 状态的解锁记录。")
+			return h.send(ctx, chatID, "✅ 当前没有 unknown 状态的解锁记录。")
 		}
+		userNames := h.buildUserNames(ctx)
 		var b strings.Builder
 		b.WriteString("⚠️ <b>Unknown 解锁记录</b>\n\n")
 		for _, r := range records {
-			fmt.Fprintf(&b, "• 用户 <code>%d</code> / 资源 <code>%s</code>\n", r.UserID, r.ResourceID)
+			name := userDisplayName(r.UserID, userNames[r.UserID])
+			fmt.Fprintf(&b, "• %s / 资源 <code>%s</code>\n", name, r.ResourceID)
 			fmt.Fprintf(&b, "  更新时间：%s\n", r.UpdatedAt.Local().Format("01-02 15:04"))
 		}
 		b.WriteString("\n使用 /unlockreset &lt;user_id&gt; &lt;resource_id&gt; 解除")
@@ -388,4 +392,22 @@ func (h *Handler) exportData(ctx context.Context, userID, chatID int64) error {
 	filename := fmt.Sprintf("hdhive_export_%s.json", time.Now().Format("20060102_150405"))
 	caption := fmt.Sprintf("📊 数据导出完成\n\n• 用户：%d 人\n• 活动日志：%d 条", len(userData), len(logs))
 	return h.messenger.SendDocument(ctx, chatID, filename, jsonData, caption)
+}
+
+// buildUserNames 构建 userID → 昵称映射表，用于日志和 unknown 列表显示
+func (h *Handler) buildUserNames(ctx context.Context) map[int64]string {
+	names := make(map[int64]string)
+	if h.services.Users == nil {
+		return names
+	}
+	users, err := h.services.Users.ListUsers(ctx, 5000, 0)
+	if err != nil {
+		return names
+	}
+	for _, u := range users {
+		if u.Note != "" {
+			names[u.ID] = u.Note
+		}
+	}
+	return names
 }

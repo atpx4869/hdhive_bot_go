@@ -447,13 +447,19 @@ func (h *Handler) search(ctx context.Context, userID, chatID int64, query string
 func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) error {
 	cb, err := h.sessions.ResolveCallback(cctx.CallbackData, cctx.UserID)
 	if err != nil {
-		h.logger.Warn("callback resolution failed",
-			"user_id", cctx.UserID,
-			"callback_id", cctx.CallbackID,
-			"error", err,
-		)
-		_ = h.messenger.AnswerCallback(ctx, cctx.CallbackID, CallbackAnswer{Text: "⏰ 此页面已过期，请重新搜索", ShowAlert: true})
-		return nil
+		// 字面 action（close/new_search/noop/back_search 等）不经 token 解析，直接按 action 处理
+		switch cctx.CallbackData {
+		case "close", "new_search", "noop", "back_search":
+			cb = session.Callback{UserID: cctx.UserID, Action: cctx.CallbackData, Value: ""}
+		default:
+			h.logger.Warn("callback resolution failed",
+				"user_id", cctx.UserID,
+				"callback_id", cctx.CallbackID,
+				"error", err,
+			)
+			_ = h.messenger.AnswerCallback(ctx, cctx.CallbackID, CallbackAnswer{Text: "⏰ 此页面已过期，请重新搜索", ShowAlert: true})
+			return nil
+		}
 	}
 	h.logger.Info("received callback",
 		"user_id", cctx.UserID,

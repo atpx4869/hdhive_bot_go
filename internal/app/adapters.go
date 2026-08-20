@@ -184,11 +184,11 @@ func resourceFromMap(m map[string]any, tmdbID int64, index int) telegram.Resourc
 	r := telegram.Resource{
 		ID:          id,
 		UnlockSlug:  id,
-		Title:       defaultString(first(m, "title", "name", "resource_name"), "未命名资源"),
+		Title:       defaultString(first(m, "remark", "title", "name", "slug", "id"), "未知资源"),
 		Quality:     first(m, "video_resolution", "quality", "resolution", "video_quality"),
 		Size:        first(m, "share_size", "size", "file_size"),
 		Subtitle:    subtitle,
-		Description: first(m, "description", "remark", "note"),
+		Description: first(m, "description"),
 		Fee:         fee,
 		FeeKnown:    feeKnown,
 		Unlocked:    boolean(m, "unlocked", "is_unlocked"),

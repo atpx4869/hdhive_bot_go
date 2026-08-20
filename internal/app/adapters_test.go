@@ -42,6 +42,23 @@ func TestResourceFromMapFieldMapping(t *testing.T) {
 	}
 }
 
+func TestResourceTitlePrefersRemark(t *testing.T) {
+	m := map[string]any{
+		"title":  "流浪地球",
+		"remark": "4K 蓝光原盘 REMUX · DV&HDR",
+		"slug":   "slug-1",
+	}
+	r := resourceFromMap(m, 1, 0)
+	if r.Title != "4K 蓝光原盘 REMUX · DV&HDR" {
+		t.Fatalf("title=%q", r.Title)
+	}
+	// 没有 remark 时退回 title
+	r2 := resourceFromMap(map[string]any{"title": "千与千寻"}, 1, 0)
+	if r2.Title != "千与千寻" {
+		t.Fatalf("title=%q", r2.Title)
+	}
+}
+
 func TestFilterAndSortResources(t *testing.T) {
 	in := []telegram.Resource{
 		{ID: "a", PanType: "guangYa", Title: "gua"},

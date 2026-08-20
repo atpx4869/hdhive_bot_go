@@ -162,9 +162,7 @@ func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text str
 		}
 		if arg == "" {
 			_ = h.sessions.Set(userID, "set115", nil)
-			return h.send(ctx, chatID, "🍪 请发送 115 Cookie。
-
-发送后将<b>加密保存</b>；可用 <code>/unset115</code> 删除。")
+			return h.send(ctx, chatID, "🍪 请发送 115 Cookie。\n\n发送后将<b>加密保存</b>；可用 <code>/unset115</code> 删除。")
 		}
 		return h.set115(ctx, userID, chatID, arg, messageID)
 	case "/unset115":
@@ -182,9 +180,7 @@ func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text str
 		}
 		cfg, err := h.services.Accounts.GetP115Config(ctx, userID)
 		if err != nil {
-			return h.send(ctx, chatID, "🍪 尚未配置 115 Cookie。
-
-使用 <code>/set115</code> 进行配置。")
+			return h.send(ctx, chatID, "🍪 尚未配置 115 Cookie。\n\n使用 <code>/set115</code> 进行配置。")
 		}
 		return h.send(ctx, chatID, "🍪 115 配置状态："+MaskSecret(cfg.Cookie))
 	}
@@ -304,11 +300,7 @@ func (h *Handler) set115(ctx context.Context, userID, chatID int64, cookie strin
 			)
 		}
 	}
-	return h.send(ctx, chatID, "✅ 115 Cookie 已加密保存。
-
-⚠️ <i>包含 Cookie 的消息已尝试删除，请确认。</i>
-
-使用 <code>/my115</code> 查看配置状态。")
+	return h.send(ctx, chatID, "✅ 115 Cookie 已加密保存。\n\n⚠️ <i>包含 Cookie 的消息已尝试删除，请确认。</i>\n\n使用 <code>/my115</code> 查看配置状态。")
 }
 
 func (h *Handler) search(ctx context.Context, userID, chatID int64, query string, page int) error {

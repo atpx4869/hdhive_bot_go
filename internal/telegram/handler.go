@@ -35,6 +35,15 @@ type TMDBItem struct {
 	ID                                                     int64
 	MediaType, Title, OriginalTitle, ReleaseDate, Overview string
 	VoteAverage                                            float64
+	PosterPath                                             string // e.g. "/abc123.jpg"
+}
+
+// PosterURL returns the full poster URL or empty string if no poster.
+func (t TMDBItem) PosterURL() string {
+	if t.PosterPath == "" {
+		return ""
+	}
+	return "https://image.tmdb.org/t/p/w780" + t.PosterPath
 }
 
 type TMDBService interface {
@@ -83,6 +92,9 @@ type Handler struct {
 	messenger Messenger
 	admins    map[int64]struct{}
 	logger    *slog.Logger
+	// Active message tracking: key = chatID (private chat = userID)
+	activeMsg   map[int64]MessageRef // chatID → current main card
+	activeMsgMu sync.RWMutex
 }
 
 func NewHandler(services Services, sessions *session.Manager, messenger Messenger, adminIDs []int64, logger *slog.Logger) (*Handler, error) {
@@ -96,7 +108,47 @@ func NewHandler(services Services, sessions *session.Manager, messenger Messenge
 	for _, id := range adminIDs {
 		admins[id] = struct{}{}
 	}
-	return &Handler{services: services, sessions: sessions, messenger: messenger, admins: admins, logger: logger}, nil
+	return &Handler{services: services, sessions: sessions, messenger: messenger, admins: admins, logger: logger, activeMsg: make(map[int64]MessageRef)}, nil
+}
+
+// getActiveMsg returns the current main card for a chat, or zero value if none.
+func (h *Handler) getActiveMsg(chatID int64) (MessageRef, bool) {
+	h.activeMsgMu.RLock()
+	defer h.activeMsgMu.RUnlock()
+	ref, ok := h.activeMsg[chatID]
+	return ref, ok
+}
+
+// setActiveMsg stores the current main card for a chat.
+func (h *Handler) setActiveMsg(chatID int64, ref MessageRef) {
+	h.activeMsgMu.Lock()
+	defer h.activeMsgMu.Unlock()
+	h.activeMsg[chatID] = ref
+}
+
+// renderOrCreate edits the active message if it exists, or creates a new one.
+// Updates the active message reference on success.
+func (h *Handler) renderOrCreate(ctx context.Context, chatID int64, view View) (MessageRef, error) {
+	if ref, ok := h.getActiveMsg(chatID); ok {
+		newRef, err := h.messenger.Render(ctx, ref, view)
+		if err != nil {
+			// Edit failed (message deleted?) → send new card
+			h.logger.Warn("render failed, creating new card", "chat_id", chatID, "error", err)
+			newRef, err = h.messenger.Send(ctx, chatID, view)
+			if err != nil {
+				return MessageRef{}, err
+			}
+		}
+		h.setActiveMsg(chatID, newRef)
+		return newRef, nil
+	}
+	// No active message → create new
+	ref, err := h.messenger.Send(ctx, chatID, view)
+	if err != nil {
+		return MessageRef{}, err
+	}
+	h.setActiveMsg(chatID, ref)
+	return ref, nil
 }
 
 func (h *Handler) isAdmin(id int64) bool { _, ok := h.admins[id]; return ok }
@@ -326,39 +378,58 @@ func (h *Handler) search(ctx context.Context, userID, chatID int64, query string
 	if h.services.TMDB == nil {
 		return h.send(ctx, chatID, "⚠️ 搜索服务未配置。")
 	}
-	h.logger.Info("searching TMDB",
-		"user_id", userID,
-		"query", query,
-		"page", page,
-	)
+	h.logger.Info("searching TMDB", "user_id", userID, "query", query, "page", page)
+
+	// Show loading state
+	loadingView := BuildSearchLoadingView(query)
+	if _, err := h.renderOrCreate(ctx, chatID, loadingView); err != nil {
+		h.logger.Warn("failed to show loading state", "error", err)
+	}
+
 	items, total, err := h.services.TMDB.Search(ctx, query, page)
 	if err != nil {
-		h.logger.Error("TMDB search failed",
-			"user_id", userID,
-			"query", query,
-			"error", err,
-		)
+		h.logger.Error("TMDB search failed", "user_id", userID, "query", query, "error", err)
+		_, _ = h.renderOrCreate(ctx, chatID, View{Body: "❌ 搜索失败，请稍后重试。", Buttons: [][]Button{{CallbackButton("🔄 重试", "noop", "")}}})
 		return err
 	}
-	h.logger.Info("TMDB search completed",
-		"user_id", userID,
-		"query", query,
-		"results", len(items),
-		"total_pages", total,
-	)
+
 	if len(items) == 0 {
-		return h.send(ctx, chatID, "🔍 未找到 TMDB 结果。\n\n请尝试其他关键词。")
+		_, _ = h.renderOrCreate(ctx, chatID, BuildSearchEmptyView(query))
+		return nil
 	}
-	out := View{Body: FormatTMDB(items, page, total)}
-	for _, item := range items {
+
+	// Build results view with callback tokens
+	out := BuildSearchResultsView(items, page, total, query)
+	for i, item := range items {
 		value := encodeTMDB(item)
 		token, err := h.sessions.BindCallback(userID, "tmdb", value)
 		if err != nil {
 			return err
 		}
-		out.Buttons = append(out.Buttons, []Button{CallbackButton(FormatSearchButtonText(item), token, "")})
+		btnText := formatSearchButton(item)
+		out.Buttons[i] = []Button{CallbackButton(btnText, token, "")}
 	}
-	_, err = h.messenger.Send(ctx, chatID, out)
+	// Set navigation tokens
+	btnIdx := len(items)
+	if page > 1 {
+		prevToken, _ := h.sessions.BindCallback(userID, "search_page", fmt.Sprintf("%d:%s", page-1, query))
+		out.Buttons[btnIdx][0].CallbackData = prevToken
+	}
+	if len(out.Buttons[btnIdx]) > 1 {
+		// noop page indicator - no token needed
+		if page < total && len(out.Buttons[btnIdx]) > 2 {
+			nextToken, _ := h.sessions.BindCallback(userID, "search_page", fmt.Sprintf("%d:%s", page+1, query))
+			out.Buttons[btnIdx][2].CallbackData = nextToken
+		}
+	}
+
+	// Try to use poster from first result
+	posterURL := SearchResultsPoster(items)
+	if posterURL != "" {
+		out.Media = &Media{Type: "photo", URL: posterURL}
+	}
+
+	_, err = h.renderOrCreate(ctx, chatID, out)
 	return err
 }
 
@@ -389,7 +460,22 @@ func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) erro
 	case "noop":
 		return nil
 	case "tmdb":
+		return h.showMovieCard(ctx, cctx.UserID, cctx.ChatID, decodeTMDB(cb.Value))
+	case "movie_resources":
 		return h.showResources(ctx, cctx.UserID, cctx.ChatID, decodeTMDB(cb.Value), 1)
+	case "back_search":
+		// Return to search results - need to re-search
+		return h.send(ctx, cctx.ChatID, "🔍 请发送新的搜索关键词")
+	case "search_page":
+		// Parse "page:query" format
+		parts := strings.SplitN(cb.Value, ":", 2)
+		page := 1
+		query := cb.Value
+		if len(parts) == 2 {
+			fmt.Sscanf(parts[0], "%d", &page)
+			query = parts[1]
+		}
+		return h.search(ctx, cctx.UserID, cctx.ChatID, query, page)
 	case "resources":
 		item, page := decodeResourcePage(cb.Value)
 		return h.showResources(ctx, cctx.UserID, cctx.ChatID, item, page)
@@ -428,6 +514,21 @@ func (h *Handler) closeCard(ctx context.Context, cctx CallbackContext) error {
 	return err
 }
 
+// showMovieCard displays the movie/TV card with poster and "view resources" button.
+func (h *Handler) showMovieCard(ctx context.Context, userID, chatID int64, item TMDBItem) error {
+	h.logger.Info("showing movie card", "user_id", userID, "tmdb_id", item.ID, "title", item.Title)
+
+	view := BuildMovieCardView(item)
+
+	// Set callback tokens
+	resourcesToken, _ := h.sessions.BindCallback(userID, "movie_resources", encodeTMDB(item))
+	view.Buttons[0][0].CallbackData = resourcesToken // "查看资源"
+	// back_search and close already have tokens set
+
+	_, err := h.renderOrCreate(ctx, chatID, view)
+	return err
+}
+
 func (h *Handler) showResources(ctx context.Context, userID, chatID int64, item TMDBItem, page int) error {
 	if h.services.HDHive == nil {
 		return h.send(ctx, chatID, "⚠️ HDHive 服务未配置。")
@@ -462,16 +563,23 @@ func (h *Handler) showResources(ctx context.Context, userID, chatID int64, item 
 	var nav []Button
 	if page > 1 {
 		t, _ := h.sessions.BindCallback(userID, "resources", encodeResourcePage(item, page-1))
-		nav = append(nav, CallbackButton("⬅️ 上一页", t, ""))
+		nav = append(nav, CallbackButton("‹ 上一页", t, ""))
 	}
+	nav = append(nav, NoopButton(fmt.Sprintf("%d / %d", page, max(result.TotalPages, 1))))
 	if page < result.TotalPages {
 		t, _ := h.sessions.BindCallback(userID, "resources", encodeResourcePage(item, page+1))
-		nav = append(nav, CallbackButton("下一页 ➡️", t, ""))
+		nav = append(nav, CallbackButton("下一页 ›", t, ""))
 	}
 	if len(nav) > 0 {
 		out.Buttons = append(out.Buttons, nav)
 	}
-	_, err = h.messenger.Send(ctx, chatID, out)
+	// Back and close buttons
+	backToken, _ := h.sessions.BindCallback(userID, "movie_resources", encodeTMDB(item))
+	out.Buttons = append(out.Buttons, []Button{
+		CallbackButton("‹ 返回影片", backToken, ""),
+		CallbackButton("✕ 关闭", "close", ""),
+	})
+	_, err = h.renderOrCreate(ctx, chatID, out)
 	return err
 }
 
@@ -487,12 +595,11 @@ func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, id strin
 		action, label = "transfer", "📤 转存到 115"
 	}
 	t, _ := h.sessions.BindCallback(userID, action, id)
-	out.Buttons = [][]Button{{
-		CallbackButton(label, t, "success"),
-		CallbackButton("‹ 返回资源列表", "noop", ""),
-		CallbackButton("✕ 关闭", "close", ""),
-	}}
-	_, err = h.messenger.Send(ctx, chatID, out)
+	out.Buttons = [][]Button{
+		{CallbackButton(label, t, "success")},
+		{CallbackButton("‹ 返回资源列表", "noop", ""), CallbackButton("✕ 关闭", "close", "")},
+	}
+	_, err = h.renderOrCreate(ctx, chatID, out)
 	return err
 }
 

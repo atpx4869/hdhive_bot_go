@@ -30,7 +30,7 @@ func (a TMDBAdapter) Search(ctx context.Context, query string, page int) ([]tele
 		if item.MediaType == "tv" {
 			title, original, date = item.Name, item.OriginalName, item.FirstAirDate
 		}
-		items = append(items, telegram.TMDBItem{ID: item.ID, MediaType: item.MediaType, Title: title, OriginalTitle: original, ReleaseDate: date, Overview: item.Overview, VoteAverage: item.VoteAverage})
+		items = append(items, telegram.TMDBItem{ID: item.ID, MediaType: item.MediaType, Title: title, OriginalTitle: original, ReleaseDate: date, Overview: item.Overview, VoteAverage: item.VoteAverage, PosterPath: item.PosterPath})
 	}
 	return items, result.TotalPages, nil
 }

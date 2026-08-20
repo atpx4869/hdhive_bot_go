@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
     env_file: config.env
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}

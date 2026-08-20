@@ -3,11 +3,15 @@ package main
 import (
 	"log/slog"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/atpx4869/hdhive_bot_go/internal/app"
 	"github.com/atpx4869/hdhive_bot_go/internal/config"
 )
+
+// version 由构建时通过 -ldflags "-X main.version=vX.Y.Z" 注入，本地运行默认 dev。
+var version = "dev"
 
 func main() {
 	// 配置日志级别和格式
@@ -22,8 +26,8 @@ func main() {
 	}))
 
 	logger.Info("HDHive Bot Worker starting",
-		"version", "1.0.0",
-		"go_version", "1.25",
+		"version", version,
+		"go_version", runtime.Version(),
 		"pid", os.Getpid(),
 		"timestamp", time.Now().Format(time.RFC3339),
 	)

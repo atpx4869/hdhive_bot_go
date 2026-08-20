@@ -437,6 +437,16 @@ func (s *Store) GetUnlockRecord(ctx context.Context, userID int64, resourceID st
 	return record, nil
 }
 
+// DeleteUnlockRecord deletes any unlock record regardless of status.
+// Used to allow retry after a rejected unlock.
+func (s *Store) DeleteUnlockRecord(ctx context.Context, userID int64, resourceID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM unlock_records WHERE user_id = ? AND resource_id = ?`, userID, resourceID)
+	if err != nil {
+		return fmt.Errorf("delete unlock record: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) ResetUnlockRecord(ctx context.Context, userID int64, resourceID string) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM unlock_records WHERE user_id = ? AND resource_id = ? AND status = 'unknown'`, userID, resourceID)
 	if err != nil {

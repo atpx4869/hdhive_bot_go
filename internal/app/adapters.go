@@ -175,13 +175,22 @@ func (a *HDHiveAdapter) Unlock(ctx context.Context, userID int64, id string) (te
 	if a.Store != nil {
 		record, err := a.Store.GetUnlockRecord(ctx, userID, id)
 		if err == nil {
-			if record.Status == "success" && len(record.Result) > 0 {
-				var saved telegram.Resource
-				if json.Unmarshal(record.Result, &saved) == nil {
-					return saved, nil
+			switch record.Status {
+			case "success":
+				if len(record.Result) > 0 {
+					var saved telegram.Resource
+					if json.Unmarshal(record.Result, &saved) == nil {
+						return saved, nil
+					}
 				}
+				return telegram.Resource{}, errors.New("unlock already succeeded")
+			case "rejected":
+				// 允许重试：删除旧的 rejected 记录，重新 claim
+				_ = a.Store.DeleteUnlockRecord(ctx, userID, id)
+			default:
+				// in_flight / unknown 需要人工处理
+				return telegram.Resource{}, errors.New("unlock already attempted; manual verification required")
 			}
-			return telegram.Resource{}, errors.New("unlock already attempted; manual verification required")
 		}
 		if !errors.Is(err, store.ErrNotFound) {
 			return telegram.Resource{}, err

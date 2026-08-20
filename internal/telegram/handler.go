@@ -185,6 +185,37 @@ func (h *Handler) authorized(ctx context.Context, id int64) bool {
 	return err == nil && u.Authorized
 }
 
+// showHome 渲染 /start 首页（状态面板 + 按钮）。
+func (h *Handler) showHome(ctx context.Context, userID, chatID int64) error {
+	authorized := h.authorized(ctx, userID)
+	has115 := false
+	if h.services.Accounts != nil {
+		_, err := h.services.Accounts.GetP115Config(ctx, userID)
+		has115 = err == nil
+	}
+	view := BuildHomeView(userID, h.isAdmin(userID), authorized, has115, h.version)
+	// Set callback tokens
+	for i, row := range view.Buttons {
+		for j, btn := range row {
+			if btn.CallbackData == "noop" {
+				switch btn.Text {
+				case "⚙️ 115 设置":
+					t, _ := h.sessions.BindCallback(userID, "settings_115", "")
+					view.Buttons[i][j].CallbackData = t
+				case "❓ 使用帮助":
+					t, _ := h.sessions.BindCallback(userID, "noop", "help")
+					view.Buttons[i][j].CallbackData = t
+				case "🛠 管理面板":
+					t, _ := h.sessions.BindCallback(userID, "noop", "admin")
+					view.Buttons[i][j].CallbackData = t
+				}
+			}
+		}
+	}
+	_, err := h.messenger.Send(ctx, chatID, view)
+	return err
+}
+
 func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text string, messageID int) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -203,33 +234,7 @@ func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text str
 		if bm, ok := h.messenger.(BotMessenger); ok {
 			_ = bm.RemoveReplyKeyboard(ctx, chatID)
 		}
-		authorized := h.authorized(ctx, userID)
-		has115 := false
-		if h.services.Accounts != nil {
-			_, err := h.services.Accounts.GetP115Config(ctx, userID)
-			has115 = err == nil
-		}
-		view := BuildHomeView(userID, h.isAdmin(userID), authorized, has115, h.version)
-		// Set callback tokens
-		for i, row := range view.Buttons {
-			for j, btn := range row {
-				if btn.CallbackData == "noop" {
-					switch btn.Text {
-					case "⚙️ 115 设置":
-						t, _ := h.sessions.BindCallback(userID, "settings_115", "")
-						view.Buttons[i][j].CallbackData = t
-					case "❓ 使用帮助":
-						t, _ := h.sessions.BindCallback(userID, "noop", "help")
-						view.Buttons[i][j].CallbackData = t
-					case "🛠 管理面板":
-						t, _ := h.sessions.BindCallback(userID, "noop", "admin")
-						view.Buttons[i][j].CallbackData = t
-					}
-				}
-			}
-		}
-		_, err := h.messenger.Send(ctx, chatID, view)
-		return err
+		return h.showHome(ctx, userID, chatID)
 	case "/cancel":
 		h.sessions.ClearInteraction(userID)
 		return h.send(ctx, chatID, "🚫 <b>已取消</b> 当前操作。")
@@ -516,6 +521,8 @@ func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) erro
 		return h.unlockResource(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "settings_115":
 		return h.show115Settings(ctx, cctx.UserID, cctx.ChatID)
+	case "home":
+		return h.showHome(ctx, cctx.UserID, cctx.ChatID)
 	case "transfer":
 		return h.transfer(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "new_search":
@@ -529,11 +536,12 @@ func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) erro
 
 // closeCard clears the keyboard and marks the message as closed.
 func (h *Handler) show115Settings(ctx context.Context, userID, chatID int64) error {
+	homeToken, _ := h.sessions.BindCallback(userID, "home", "")
 	if h.services.Accounts == nil {
 		_, err := h.renderOrCreate(ctx, chatID, View{
 			Body: "⚠️ 115 服务未配置。",
 			Buttons: [][]Button{
-				{CallbackButton("‹ 返回首页", "noop", "")},
+				{CallbackButton("‹ 返回首页", homeToken, "")},
 			},
 		})
 		return err
@@ -544,7 +552,7 @@ func (h *Handler) show115Settings(ctx context.Context, userID, chatID int64) err
 		view := View{
 			Body: "🍪 <b>115 设置</b>\n\n尚未配置 115 Cookie。\n\n使用 <code>/set115</code> 命令配置。",
 			Buttons: [][]Button{
-				{CallbackButton("‹ 返回首页", "noop", "")},
+				{CallbackButton("‹ 返回首页", homeToken, "")},
 				{CallbackButton("✕ 关闭", "close", "")},
 			},
 		}
@@ -565,7 +573,7 @@ func (h *Handler) show115Settings(ctx context.Context, userID, chatID int64) err
 	fmt.Fprintf(&b, "状态：%s\n", status)
 	fmt.Fprintf(&b, "目标：%s\n", target)
 	buttons := [][]Button{
-		{CallbackButton("‹ 返回首页", "noop", ""), CallbackButton("✕ 关闭", "close", "")},
+		{CallbackButton("‹ 返回首页", homeToken, ""), CallbackButton("✕ 关闭", "close", "")},
 	}
 	view := View{Body: b.String(), Buttons: buttons}
 	_, err = h.renderOrCreate(ctx, chatID, view)

@@ -145,6 +145,50 @@ func TestUnlockExecutesDirectlyWithoutConfirmation(t *testing.T) {
 	}
 }
 
+func TestStartButtonsGetTokens(t *testing.T) {
+	m := &fakeMessenger{}
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{9: {ID: 9, Authorized: true}}}}, session.New(time.Minute, 10), m, []int64{9}, nil, "v1.4.9")
+	if err := h.HandleText(context.Background(), 9, 9, "/start", 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.sent) != 1 {
+		t.Fatalf("sent=%+v", m.sent)
+	}
+	view := m.sent[0]
+	total := 0
+	for i, row := range view.Buttons {
+		for j, btn := range row {
+			total++
+			if btn.CallbackData == "noop" || btn.CallbackData == "" {
+				t.Fatalf("button[%d][%d] %q still literal/empty: %+v", i, j, btn.Text, btn)
+			}
+		}
+	}
+	if total != 3 {
+		t.Fatalf("expected 3 buttons, got %d: %+v", total, view.Buttons)
+	}
+}
+
+func TestStartButtonClicks(t *testing.T) {
+	m := &fakeMessenger{}
+	sm := session.New(time.Minute, 10)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{9: {ID: 9, Authorized: true}}}}, sm, m, []int64{9}, nil, "v1.4.9")
+	if err := h.HandleText(context.Background(), 9, 9, "/start", 0); err != nil {
+		t.Fatal(err)
+	}
+	view := m.sent[0]
+	for _, row := range view.Buttons {
+		for _, btn := range row {
+			before := len(m.sent) + len(m.rendered)
+			if err := h.HandleCallback(context.Background(), CallbackContext{UserID: 9, ChatID: 9, MessageID: 1, CallbackID: "cb", CallbackData: btn.CallbackData}); err != nil {
+				t.Fatalf("button %q click err: %v", btn.Text, err)
+			}
+			after := len(m.sent) + len(m.rendered)
+			t.Logf("button %q -> sent/rendered delta=%d, answered=%+v", btn.Text, after-before, m.answered)
+		}
+	}
+}
+
 func TestTMDBEncodeDecodeRoundTrip(t *testing.T) {
 	item := TMDBItem{ID: 123, MediaType: "movie", Title: "千与千寻", OriginalTitle: "Spirited Away", ReleaseDate: "2001-07-20", PosterPath: "/abc123.jpg", VoteAverage: 8.6, Overview: "少女千寻误入神隐世界。"}
 	enc := encodeTMDB(item)

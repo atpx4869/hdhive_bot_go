@@ -84,7 +84,7 @@ func (f *fakeHive) Unlock(context.Context, int64, string) (Resource, error) {
 
 func TestUnauthorizedKeywordRejected(t *testing.T) {
 	m := &fakeMessenger{}
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}}, session.New(time.Minute, 10), m, nil)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}}, session.New(time.Minute, 10), m, nil, nil)
 	if err := h.HandleText(context.Background(), 1, 1, "电影", 0); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestUnauthorizedKeywordRejected(t *testing.T) {
 func TestAdminAuthorize(t *testing.T) {
 	m := &fakeMessenger{}
 	u := &fakeUsers{users: map[int64]store.User{}}
-	h, _ := NewHandler(Services{Users: u}, session.New(time.Minute, 10), m, []int64{9})
+	h, _ := NewHandler(Services{Users: u}, session.New(time.Minute, 10), m, []int64{9}, nil)
 	if err := h.HandleText(context.Background(), 9, 9, "/authorize 7", 0); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestAdminAuthorize(t *testing.T) {
 func TestCallbackOwnerBinding(t *testing.T) {
 	m := &fakeMessenger{}
 	sm := session.New(time.Minute, 10)
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}}, sm, m, nil)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}}, sm, m, nil, nil)
 	token, _ := sm.BindCallback(1, "detail", "r1")
 	if err := h.HandleCallback(context.Background(), 2, 2, "cb", token); err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestPaidUnlockRequiresConfirmationAndNoDuplicate(t *testing.T) {
 	m := &fakeMessenger{}
 	sm := session.New(time.Minute, 10)
 	hive := &fakeHive{feeKnown: true, fee: 5}
-	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}, HDHive: hive}, sm, m, nil)
+	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}, HDHive: hive}, sm, m, nil, nil)
 	token, _ := sm.BindCallback(1, "unlock", "r1")
 	if err := h.HandleCallback(context.Background(), 1, 1, "cb", token); err != nil {
 		t.Fatal(err)

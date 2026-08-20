@@ -53,6 +53,26 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 	defer db.Close()
+
+	// 启动恢复：清理过期的 in_flight 记录，防止进程崩溃后永久阻塞用户
+	if recovered, err := recoverStaleInFlight(ctx, db, logger); err != nil {
+		logger.Warn("failed to recover stale in-flight records", "error", err)
+	} else if recovered > 0 {
+		logger.Info("recovered stale in-flight records", "count", recovered)
+	}
+
+	// 清理过期活动日志（保留 90 天）
+	if deleted, err := db.CleanupActivityLogs(ctx, 90); err != nil {
+		logger.Warn("failed to cleanup activity logs", "error", err)
+	} else if deleted > 0 {
+		logger.Info("cleaned up activity logs", "deleted", deleted)
+	}
+
+	// 输出数据库统计
+	if size, err := db.GetDatabaseSize(ctx); err == nil {
+		logger.Info("database stats", "size_bytes", size)
+	}
+
 	// 为不同服务创建独立的 HTTP 客户端，支持细粒度超时
 	tmdbHTTPClient, err := newHTTPClientWithTimeout(cfg, cfg.TMDBTimeout)
 	if err != nil {
@@ -119,6 +139,34 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("telegram polling failed: %w", err)
 	}
 	return fmt.Errorf("telegram polling returned unexpectedly")
+}
+
+// recoverStaleInFlight marks in-flight unlock records older than 1 hour as "unknown",
+// so users are not permanently blocked after a crash. Returns the number of recovered records.
+func recoverStaleInFlight(ctx context.Context, db *store.Store, logger *slog.Logger) (int, error) {
+	records, err := db.GetInFlightUnlockRecords(ctx, 500)
+	if err != nil {
+		return 0, err
+	}
+	threshold := time.Now().Add(-1 * time.Hour)
+	recovered := 0
+	for _, r := range records {
+		if r.UpdatedAt.Before(threshold) {
+			if err := db.SetUnlockRecord(ctx, store.UnlockRecord{
+				UserID:     r.UserID,
+				ResourceID: r.ResourceID,
+				Status:     "unknown",
+			}); err != nil {
+				logger.Warn("failed to recover in-flight record",
+					"user_id", r.UserID, "resource_id", r.ResourceID, "error", err)
+				continue
+			}
+			recovered++
+			logger.Info("recovered stale in-flight record",
+				"user_id", r.UserID, "resource_id", r.ResourceID)
+		}
+	}
+	return recovered, nil
 }
 
 func RunWithSignals(cfg config.Config, logger *slog.Logger) error {

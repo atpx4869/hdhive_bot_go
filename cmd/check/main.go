@@ -39,7 +39,7 @@ func main() {
 	// 1. 检查 Telegram Bot
 	fmt.Println("=== 1. Telegram Bot ===")
 	if cfg.TelegramToken != "" {
-		fmt.Printf("✅ Bot Token: 已设置 (%s...)\n", cfg.TelegramToken[:10])
+		fmt.Printf("✅ Bot Token: 已设置 (%d 字符)\n", len(cfg.TelegramToken))
 	} else {
 		fmt.Println("❌ Bot Token: 未设置")
 		allOk = false
@@ -55,7 +55,7 @@ func main() {
 	// 2. 检查 TMDB
 	fmt.Println("\n=== 2. TMDB ===")
 	if cfg.TMDBToken != "" {
-		fmt.Printf("✅ TMDB Token: 已设置 (%s...)\n", cfg.TMDBToken[:10])
+		fmt.Printf("✅ TMDB Token: 已设置 (%d 字符)\n", len(cfg.TMDBToken))
 		
 		// 测试 TMDB 连接
 		tmdbClient, err := tmdb.New(cfg.TMDBToken, nil)
@@ -86,7 +86,7 @@ func main() {
 	}
 
 	if cfg.HDHiveSecret != "" {
-		fmt.Printf("✅ HDHive 密钥: 已设置 (%s...)\n", cfg.HDHiveSecret[:8])
+		fmt.Printf("✅ HDHive 密钥: 已设置 (%d 字符)\n", len(cfg.HDHiveSecret))
 	} else {
 		fmt.Println("❌ HDHive 密钥: 未设置")
 		allOk = false
@@ -100,7 +100,7 @@ func main() {
 	}
 
 	if cfg.HDHiveUserKey != "" {
-		fmt.Printf("✅ HDHive 用户 Key: 已设置 (%s...)\n", cfg.HDHiveUserKey[:8])
+		fmt.Printf("✅ HDHive 用户 Key: 已设置 (%d 字符)\n", len(cfg.HDHiveUserKey))
 	} else {
 		fmt.Println("❌ HDHive 用户 Key: 未设置")
 		allOk = false

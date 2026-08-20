@@ -510,6 +510,7 @@ func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) erro
 	case "settings_115":
 		return h.show115Settings(ctx, cctx.UserID, cctx.ChatID)
 	case "transfer":
+		return h.transfer(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "new_search":
 		_, _ = h.messenger.Send(ctx, cctx.ChatID, ViewFromText("🔍 请发送新的搜索关键词"))
 		return nil
@@ -663,13 +664,9 @@ func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, id strin
 		out.Buttons = [][]Button{
 			{CallbackButton("📥 转存到 115", transferToken, "success")},
 		}
-		// URL button (if valid)
-		if r.ShareURL != "" && isValidHTTPS(r.ShareURL) {
-			out.Buttons = append(out.Buttons, []Button{URLButton("🔗 打开资源", r.ShareURL)})
-		}
-		// Copy extract code button
-		if r.ReceiveCode != "" {
-			out.Buttons = append(out.Buttons, []Button{CopyButton("📋 复制提取码", r.ReceiveCode)})
+		// 复制完整分享链接
+		if link := shareLinkText(r); link != "" {
+			out.Buttons = append(out.Buttons, []Button{CopyButton("📋 复制分享链接", link)})
 		}
 		out.Buttons = append(out.Buttons, []Button{
 			CallbackButton("‹ 返回资源列表", backToken, ""),

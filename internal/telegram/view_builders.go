@@ -207,6 +207,9 @@ func BuildResourceDetailView(r Resource, mediaTitle string) View {
 	}
 	if r.Unlocked {
 		b.WriteString("状态    已解锁\n")
+		if link := shareLinkText(r); link != "" {
+			fmt.Fprintf(&b, "\n🔗 <b>分享链接</b>\n<code>%s</code>\n", html.EscapeString(link))
+		}
 	}
 
 	return View{Body: TruncateCaption(b.String())}
@@ -282,20 +285,17 @@ func BuildUnlockSuccessView(r Resource) View {
 		fmt.Fprintf(&b, "%s\n", html.EscapeString(strings.Join(parts, " · ")))
 	}
 	b.WriteByte('\n')
-	if r.ReceiveCode != "" {
-		fmt.Fprintf(&b, "提取码：%s\n", html.EscapeString(r.ReceiveCode))
+
+	link := shareLinkText(r)
+	if link != "" {
+		fmt.Fprintf(&b, "🔗 <b>分享链接</b>\n<code>%s</code>\n\n", html.EscapeString(link))
 	}
 	b.WriteString("建议立即转存，避免分享失效。")
 
 	buttons := [][]Button{}
-	// Transfer button
 	buttons = append(buttons, []Button{CallbackButton("📥 一键转存到 115", "", "success")})
-	// URL and Copy buttons
-	if r.ShareURL != "" && isValidHTTPS(r.ShareURL) {
-		buttons = append(buttons, []Button{URLButton("🔗 打开资源", r.ShareURL)})
-	}
-	if r.ReceiveCode != "" {
-		buttons = append(buttons, []Button{CopyButton("📋 复制提取码", r.ReceiveCode)})
+	if link != "" {
+		buttons = append(buttons, []Button{CopyButton("📋 复制分享链接", link)})
 	}
 	buttons = append(buttons, []Button{
 		CallbackButton("‹ 返回资源", "", ""),
@@ -405,6 +405,25 @@ func BuildTransferFailedView(err error) View {
 }
 
 // ──────────────────────── Helpers ────────────────────────
+
+// shareLinkText 拼出完整分享链接（URL 优先；否则用分享码拼 115 链接），含提取码。
+func shareLinkText(r Resource) string {
+	switch {
+	case r.ShareURL != "":
+		if r.ReceiveCode != "" && !strings.Contains(r.ShareURL, r.ReceiveCode) {
+			return r.ShareURL + "　提取码：" + r.ReceiveCode
+		}
+		return r.ShareURL
+	case r.ShareCode != "":
+		link := "https://115.com/s/" + r.ShareCode
+		if r.ReceiveCode != "" {
+			link += "?password=" + r.ReceiveCode
+		}
+		return link
+	default:
+		return ""
+	}
+}
 
 func isValidHTTPS(u string) bool {
 	return strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://")

@@ -159,4 +159,19 @@ func TestTMDBEncodeDecodeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestShareLinkText(t *testing.T) {
+	if got := shareLinkText(Resource{ShareURL: "https://115.com/s/abc", ReceiveCode: "P9"}); !strings.Contains(got, "https://115.com/s/abc") || !strings.Contains(got, "P9") {
+		t.Fatalf("got %q", got)
+	}
+	if got := shareLinkText(Resource{ShareCode: "abc123"}); got != "https://115.com/s/abc123" {
+		t.Fatalf("got %q", got)
+	}
+	if got := shareLinkText(Resource{ShareCode: "abc123", ReceiveCode: "pwd"}); got != "https://115.com/s/abc123?password=pwd" {
+		t.Fatalf("got %q", got)
+	}
+	if got := shareLinkText(Resource{}); got != "" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 var _ = errors.New

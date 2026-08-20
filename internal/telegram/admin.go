@@ -28,7 +28,11 @@ func (h *Handler) handleAdmin(ctx context.Context, actor, chatID int64, cmd, arg
 		// Invalidate auth cache for this user
 		h.invalidateAuthCache(id)
 		h.log(ctx, actor, strings.TrimPrefix(cmd, "/"), fmt.Sprintf("user=%d %s", id, rest))
-		return h.send(ctx, chatID, fmt.Sprintf("用户 %d 已%s授权。", id, map[bool]string{true: "获得", false: "撤销"}[authorized]))
+		icon := "✅"
+		if !authorized {
+			icon = "🚫"
+		}
+		return h.send(ctx, chatID, fmt.Sprintf("%s 用户 <code>%d</code> 已%s授权。", icon, id, map[bool]string{true: "获得", false: "撤销"}[authorized]))
 	case "/note":
 		id, note, err := parseIDArg(arg)
 		if err != nil || note == "" {
@@ -37,7 +41,7 @@ func (h *Handler) handleAdmin(ctx context.Context, actor, chatID int64, cmd, arg
 		if err := h.services.Users.SetUserNote(ctx, id, note); err != nil {
 			return err
 		}
-		return h.send(ctx, chatID, "备注已更新。")
+		return h.send(ctx, chatID, "✅ 备注已更新。")
 	case "/users":
 		page := 1
 		if arg != "" {
@@ -122,7 +126,7 @@ func (h *Handler) handleAdmin(ctx context.Context, actor, chatID int64, cmd, arg
 		}
 		h.sessions.ResetUnlock(userID, resourceID)
 		h.log(ctx, actor, "unlockreset", fmt.Sprintf("user=%d resource=%s", userID, resourceID))
-		return h.send(ctx, chatID, "解锁状态已解除。请先人工核验是否已扣费，再让用户重新操作。")
+		return h.send(ctx, chatID, "✅ 解锁状态已解除\n\n请先人工核验是否已扣费，再让用户重新操作。")
 	case "/enable115", "/disable115":
 		if h.services.Accounts == nil {
 			return h.send(ctx, chatID, "115 服务未配置。")
@@ -152,7 +156,7 @@ func (h *Handler) handleAdmin(ctx context.Context, actor, chatID int64, cmd, arg
 			action = "停用"
 		}
 		h.log(ctx, actor, cmd[1:], fmt.Sprintf("user=%d", targetID))
-		return h.send(ctx, chatID, fmt.Sprintf("已%s用户 %d 的 115 配置。", action, targetID))
+		return h.send(ctx, chatID, fmt.Sprintf("✅ 已%s用户 <code>%d</code> 的 115 配置。", action, targetID))
 	case "/unknown":
 		if h.services.HDHive == nil {
 			return h.send(ctx, chatID, "HDHive 服务未配置。")

@@ -22,7 +22,7 @@ func (h *Handler) search(ctx context.Context, userID, chatID int64, query string
 		return err
 	}
 	if len(items) == 0 {
-		return h.send(ctx, chatID, "未找到 TMDB 结果。")
+		return h.send(ctx, chatID, "🔍 未找到结果\n\n换个关键词试试？")
 	}
 	h.sessions.SetSearchContext(userID, query, page)
 	out := Outgoing{Text: FormatTMDB(items, page, total)}
@@ -97,9 +97,9 @@ func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, id strin
 	}
 	out := Outgoing{Text: FormatResource(r)}
 	action := "unlock"
-	label := "解锁资源"
+	label := "🔓 解锁资源"
 	if r.Unlocked {
-		action, label = "transfer", "转存到 115"
+		action, label = "transfer", "📤 转存到 115"
 	}
 	t, _ := h.sessions.BindCallback(userID, action, id)
 	out.Buttons = [][]Button{{{Text: label, CallbackData: t}}}
@@ -112,21 +112,25 @@ func (h *Handler) confirmUnlock(ctx context.Context, userID, chatID int64, id st
 		return err
 	}
 	if r.Unlocked {
-		return h.send(ctx, chatID, "该资源已经解锁，无需重复提交。")
+		return h.send(ctx, chatID, "✅ 该资源已经解锁，无需重复提交。")
 	}
 	if err := h.sessions.BeginUnlock(userID, id); err != nil {
-		return h.send(ctx, chatID, "该资源已在处理，请勿重复提交。")
+		return h.send(ctx, chatID, "⏳ 该资源已在处理，请勿重复提交。")
 	}
 	if r.FeeKnown && r.Fee == 0 {
 		return h.unlock(ctx, userID, chatID, id)
 	}
-	fee := "费用未知"
+	fee := "<i>费用未知</i>"
 	if r.FeeKnown {
-		fee = fmt.Sprintf("费用 %d", r.Fee)
+		if r.Fee == 0 {
+			fee = "<b>免费</b> 🆓"
+		} else {
+			fee = fmt.Sprintf("<b>%d 积分</b>", r.Fee)
+		}
 	}
 	y, _ := h.sessions.BindCallback(userID, "unlock_confirm", id)
 	n, _ := h.sessions.BindCallback(userID, "unlock_reject", id)
-	return h.messenger.Send(ctx, chatID, Outgoing{Text: "此操作" + fee + "，是否确认解锁？", Buttons: [][]Button{{{Text: "确认解锁", CallbackData: y}, {Text: "取消", CallbackData: n}}}})
+	return h.messenger.Send(ctx, chatID, Outgoing{Text: "⚠️ 此操作将消耗 " + fee + "，是否继续？", Buttons: [][]Button{{{Text: "✅ 确认解锁", CallbackData: y}, {Text: "❌ 取消", CallbackData: n}}}})
 }
 
 func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) error {
@@ -134,7 +138,7 @@ func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) e
 		return h.send(ctx, chatID, "该资源已经解锁，无需重复提交。")
 	}
 	if err := h.sessions.TransitionUnlock(userID, id, session.UnlockPending, session.UnlockInFlight); err != nil {
-		return h.send(ctx, chatID, "该资源已在处理或已成功解锁。")
+		return h.send(ctx, chatID, "⏳ 该资源已在处理或已成功解锁。")
 	}
 	r, err := h.services.HDHive.Unlock(ctx, userID, id)
 	if err != nil {
@@ -143,23 +147,23 @@ func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) e
 			_ = h.sessions.SetUnlockStatus(userID, id, session.UnlockRejected)
 			retryBtn, _ := h.sessions.BindCallback(userID, "unlock", id)
 			return h.messenger.Send(ctx, chatID, Outgoing{
-				Text:    "解锁被拒绝：" + apiErr.Message + "\n可能是积分不足、资源失效或账号权限不足。",
-				Buttons: [][]Button{{{Text: "重试解锁", CallbackData: retryBtn}}},
+				Text:    "❌ 解锁被拒绝：" + apiErr.Message + "\n\n可能是积分不足、资源失效或账号权限不足。",
+				Buttons: [][]Button{{{Text: "🔄 重试解锁", CallbackData: retryBtn}}},
 			})
 		}
 		_ = h.sessions.SetUnlockStatus(userID, id, session.UnlockUnknown)
-		return h.send(ctx, chatID, "解锁结果不确定，请联系管理员。请勿重复付费解锁。")
+		return h.send(ctx, chatID, "❌ 解锁结果不确定\n\n请联系管理员，请勿重复付费解锁。")
 	}
 	_ = h.sessions.SetUnlockStatus(userID, id, session.UnlockSuccess)
 	h.log(ctx, userID, "unlock", id)
-	out := Outgoing{Text: "解锁成功。\n" + FormatResource(r)}
+	out := Outgoing{Text: "🎉 <b>解锁成功！</b>\n\n" + FormatResource(r)}
 	var buttons []Button
 	if h.services.Transfer != nil {
 		t, _ := h.sessions.BindCallback(userID, "transfer", id)
-		buttons = append(buttons, Button{Text: "转存到 115", CallbackData: t})
+		buttons = append(buttons, Button{Text: "📤 转存到 115", CallbackData: t})
 	}
 	backBtn, _ := h.sessions.BindCallback(userID, "resources", id)
-	buttons = append(buttons, Button{Text: "返回资源列表", CallbackData: backBtn})
+	buttons = append(buttons, Button{Text: "↩️ 返回资源列表", CallbackData: backBtn})
 	if len(buttons) > 0 {
 		out.Buttons = [][]Button{buttons}
 	}
@@ -188,7 +192,7 @@ func (h *Handler) transfer(ctx context.Context, userID, chatID int64, id string)
 			switch p115Err.Kind {
 			case p115.KindAuth:
 				reconfigBtn, _ := h.sessions.BindCallback(userID, "set115", "")
-				buttons = append(buttons, Button{Text: "重新配置 115", CallbackData: reconfigBtn})
+				buttons = append(buttons, Button{Text: "⚙️ 重新配置 115", CallbackData: reconfigBtn})
 			case p115.KindRateLimit:
 				// No button needed — user can use the retry button below
 			}
@@ -197,14 +201,14 @@ func (h *Handler) transfer(ctx context.Context, userID, chatID int64, id string)
 			errMsg := err.Error()
 			if strings.Contains(errMsg, "cookie") || strings.Contains(errMsg, "登录") || strings.Contains(errMsg, "auth") {
 				reconfigBtn, _ := h.sessions.BindCallback(userID, "set115", "")
-				buttons = append(buttons, Button{Text: "重新配置 115", CallbackData: reconfigBtn})
+				buttons = append(buttons, Button{Text: "⚙️ 重新配置 115", CallbackData: reconfigBtn})
 			}
 		}
 
 		retryBtn, _ := h.sessions.BindCallback(userID, "transfer", id)
-		buttons = append(buttons, Button{Text: "重试转存", CallbackData: retryBtn})
+		buttons = append(buttons, Button{Text: "🔄 重试转存", CallbackData: retryBtn})
 		backBtn, _ := h.sessions.BindCallback(userID, "resources", id)
-		buttons = append(buttons, Button{Text: "返回资源列表", CallbackData: backBtn})
+		buttons = append(buttons, Button{Text: "↩️ 返回资源列表", CallbackData: backBtn})
 
 		h.log(ctx, userID, "transfer115", id,
 			store.WithStatus("failed"),
@@ -218,7 +222,7 @@ func (h *Handler) transfer(ctx context.Context, userID, chatID int64, id string)
 		return h.messenger.Send(ctx, chatID, out)
 	}
 	h.log(ctx, userID, "transfer115", id, store.WithStatus("success"))
-	return h.send(ctx, chatID, "115 转存成功："+result)
+	return h.send(ctx, chatID, "🎉 <b>115 转存成功！</b>\n\n"+result)
 }
 
 // #6: Use JSON encoding for callback values to avoid delimiter conflicts

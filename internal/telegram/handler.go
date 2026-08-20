@@ -193,7 +193,7 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 
 	// #16: Input validation — limit search query length
 	if len(text) > 500 {
-		return h.send(ctx, chatID, "消息过长，请简化后重试。")
+		return h.send(ctx, chatID, "⚠️ 消息过长，请简化后重试。")
 	}
 
 	cmd, arg := splitCommand(text)
@@ -224,16 +224,16 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 		}
 		return h.send(ctx, chatID, StatusPanel(userID, h.isAdmin(userID), h.authorized(ctx, userID), p115Enabled, p115Target))
 	case "/myid":
-		return h.send(ctx, chatID, fmt.Sprintf("你的 Telegram User ID：%d", userID))
+		return h.send(ctx, chatID, fmt.Sprintf("🆔 你的 Telegram User ID：\n\n<code>%d</code>", userID))
 	case "/authorize", "/revoke", "/users", "/note", "/logs", "/unlockreset", "/enable115", "/disable115", "/unknown", "/export", "/import":
 		if !h.isAdmin(userID) {
-			return h.send(ctx, chatID, "无权限：仅管理员可使用此命令。")
+			return h.send(ctx, chatID, "🚫 无权限：仅管理员可使用此命令。")
 		}
 		return h.handleAdmin(ctx, userID, chatID, cmd, arg)
 	}
 
 	if !h.authorized(ctx, userID) {
-		return h.send(ctx, chatID, "你尚未获得授权，请将 /myid 的结果发送给管理员。")
+		return h.send(ctx, chatID, "⚠️ 你尚未获得授权\n\n请将你的 ID 发送给管理员：\n<code>/myid</code>")
 	}
 
 	switch cmd {
@@ -242,10 +242,10 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 			return h.send(ctx, chatID, "为保护 Cookie，/set115 只能在 Bot 私聊中使用。")
 		}
 		_ = h.sessions.Set(userID, "set115_cookie", nil)
-		return h.send(ctx, chatID, "请发送完整的 115 Cookie（应包含 UID、CID、SEID）。Bot 会尝试立即删除该消息。")
+		return h.send(ctx, chatID, "🍪 请发送完整的 115 Cookie\n\n应包含 <code>UID</code>、<code>CID</code>、<code>SEID</code>\n\n⚠️ Bot 会尝试立即删除该消息")
 	case "/cancel":
 		h.sessions.ClearInteraction(userID)
-		return h.send(ctx, chatID, "已取消当前操作。")
+		return h.send(ctx, chatID, "✅ 已取消当前操作。")
 	case "/unset115":
 		if h.isAdmin(userID) {
 			return h.send(ctx, chatID, "管理员不能通过 Bot 删除自己的 115 配置。")
@@ -265,7 +265,7 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 		if err != nil {
 			return err
 		}
-		return h.messenger.Send(ctx, chatID, Outgoing{Text: "确认停用你的 115 配置吗？服务端会保留加密记录。", Buttons: [][]Button{{{Text: "确认停用", CallbackData: yes}, {Text: "取消", CallbackData: no}}}})
+		return h.messenger.Send(ctx, chatID, Outgoing{Text: "⚠️ 确认停用你的 115 配置吗？\n\n服务端会保留加密记录，可随时重新配置。", Buttons: [][]Button{{{Text: "✅ 确认停用", CallbackData: yes}, {Text: "❌ 取消", CallbackData: no}}}})
 	case "/my115":
 		if h.services.Accounts == nil {
 			return h.send(ctx, chatID, "115 服务未配置。")
@@ -282,10 +282,19 @@ func (h *Handler) HandleMessage(ctx context.Context, userID, chatID int64, messa
 		if strings.TrimSpace(cfg.TargetCID) != "" && cfg.TargetCID != "0" {
 			target = fmt.Sprintf("目录 %s", cfg.TargetCID)
 		}
-		text := fmt.Sprintf("115 配置状态：\n• 状态：%s\n• 转存目标：%s", status, target)
+		var b strings.Builder
+		b.WriteString("<b>☁️ 115 配置</b>\n")
+		b.WriteString("───────────────\n")
+		if cfg.Enabled {
+			fmt.Fprintf(&b, "状态：%s\n", "✅ 已启用")
+		} else {
+			fmt.Fprintf(&b, "状态：%s\n", "⚪ 已停用")
+		}
+		fmt.Fprintf(&b, "转存目标：%s\n", target)
+		text := b.String()
 		var buttons []Button
 		changeBtn, _ := h.sessions.BindCallback(userID, "change115cid", "")
-		buttons = append(buttons, Button{Text: "修改目标目录", CallbackData: changeBtn})
+		buttons = append(buttons, Button{Text: "📂 修改目标目录", CallbackData: changeBtn})
 		return h.messenger.Send(ctx, chatID, Outgoing{Text: text, Buttons: [][]Button{buttons}})
 	}
 
@@ -325,7 +334,7 @@ func (h *Handler) HandleCallback(ctx context.Context, userID, chatID int64, call
 	}
 	_ = h.messenger.AnswerCallback(ctx, callbackID, "处理中…")
 	if !h.authorized(ctx, userID) {
-		return h.send(ctx, chatID, "你尚未获得授权。")
+		return h.send(ctx, chatID, "⚠️ 你尚未获得授权。")
 	}
 	switch cb.Action {
 	case "tmdb":
@@ -344,12 +353,12 @@ func (h *Handler) HandleCallback(ctx context.Context, userID, chatID int64, call
 		if err := h.sessions.TransitionUnlock(userID, cb.Value, session.UnlockPending, session.UnlockRejected); err != nil {
 			return h.send(ctx, chatID, "该解锁请求已处理，不能取消。")
 		}
-		return h.send(ctx, chatID, "已取消解锁。")
+		return h.send(ctx, chatID, "✅ 已取消解锁。")
 	case "transfer":
 		return h.transfer(ctx, userID, chatID, cb.Value)
 	case "unset115_cancel":
 		h.sessions.DeleteCallback(token)
-		return h.send(ctx, chatID, "已取消停用 115 配置。")
+		return h.send(ctx, chatID, "✅ 已取消停用 115 配置。")
 	case "unset115_confirm":
 		h.sessions.DeleteCallback(token)
 		if h.isAdmin(userID) {
@@ -363,7 +372,7 @@ func (h *Handler) HandleCallback(ctx context.Context, userID, chatID int64, call
 			return err
 		}
 		h.log(ctx, userID, "unset115", "disabled")
-		return h.send(ctx, chatID, "115 配置已停用。")
+		return h.send(ctx, chatID, "✅ 115 配置已停用。")
 	case "admin_users":
 		if !h.isAdmin(userID) {
 			return h.send(ctx, chatID, "无权限。")
@@ -399,7 +408,7 @@ func (h *Handler) HandleCallback(ctx context.Context, userID, chatID int64, call
 			return h.send(ctx, chatID, "为保护 Cookie，此操作只能在 Bot 私聊中使用。")
 		}
 		_ = h.sessions.Set(userID, "set115_cookie", nil)
-		return h.send(ctx, chatID, "请发送完整的 115 Cookie（应包含 UID、CID、SEID）。Bot 会尝试立即删除该消息。")
+		return h.send(ctx, chatID, "🍪 请发送完整的 115 Cookie\n\n应包含 <code>UID</code>、<code>CID</code>、<code>SEID</code>\n\n⚠️ Bot 会尝试立即删除该消息")
 	}
 	return nil
 }

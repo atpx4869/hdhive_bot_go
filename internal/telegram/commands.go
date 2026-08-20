@@ -16,22 +16,22 @@ func (h *Handler) receive115Cookie(ctx context.Context, userID, chatID int64, me
 		if !deleted {
 			warning = "\nBot 无法自动删除原消息，请立即手动删除。"
 		}
-		return h.send(ctx, chatID, "Cookie 格式不正确，应包含 UID、CID、SEID，请重新发送。"+warning)
+		return h.send(ctx, chatID, "❌ Cookie 格式不正确\n\n应包含 <code>UID</code>、<code>CID</code>、<code>SEID</code>，请重新发送。"+warning)
 	}
 	if err := h.sessions.Set(userID, "set115_cid", map[string]string{"cookie": cookie}); err != nil {
 		return err
 	}
 	warning := ""
 	if !deleted {
-		warning = "\nBot 无法自动删除 Cookie 消息，请立即手动删除。"
+		warning = "\n⚠️ Bot 无法自动删除 Cookie 消息，请立即手动删除。"
 	}
-	return h.send(ctx, chatID, "Cookie 格式已确认。请发送目标目录 cid；发送 0 表示根目录。"+warning)
+	return h.send(ctx, chatID, "✅ Cookie 格式已确认\n\n请发送目标目录 <code>cid</code>\n发送 <code>0</code> 表示根目录"+warning)
 }
 
 func (h *Handler) receive115CID(ctx context.Context, userID, chatID int64, targetCID, cookie string) error {
 	targetCID = strings.TrimSpace(targetCID)
 	if targetCID == "" || strings.Trim(targetCID, "0123456789") != "" {
-		return h.send(ctx, chatID, "目标目录 cid 必须是数字；根目录请输入 0。")
+		return h.send(ctx, chatID, "⚠️ 目标目录 cid 必须是数字\n\n根目录请输入 <code>0</code>")
 	}
 	if h.services.Accounts == nil {
 		return h.send(ctx, chatID, "115 服务未配置。")
@@ -41,20 +41,20 @@ func (h *Handler) receive115CID(ctx context.Context, userID, chatID int64, targe
 	}
 	h.sessions.ClearInteraction(userID)
 	h.log(ctx, userID, "set115", map[bool]string{true: "root", false: "configured"}[targetCID == "0"])
-	return h.send(ctx, chatID, "115 配置已加密保存。")
+	return h.send(ctx, chatID, "✅ 115 配置已加密保存。")
 }
 
 func (h *Handler) change115CID(ctx context.Context, userID, chatID int64, targetCID string) error {
 	targetCID = strings.TrimSpace(targetCID)
 	if targetCID == "" || strings.Trim(targetCID, "0123456789") != "" {
-		return h.send(ctx, chatID, "目标目录 cid 必须是数字；根目录请输入 0。")
+		return h.send(ctx, chatID, "⚠️ 目标目录 cid 必须是数字\n\n根目录请输入 <code>0</code>")
 	}
 	if h.services.Accounts == nil {
 		return h.send(ctx, chatID, "115 服务未配置。")
 	}
 	cfg, err := h.services.Accounts.GetP115Config(ctx, userID)
 	if err != nil {
-		return h.send(ctx, chatID, "你还没有配置 115。发送 /set115 开始配置。")
+		return h.send(ctx, chatID, "⚠️ 你还没有配置 115\n\n发送 <code>/set115</code> 开始配置。")
 	}
 	cfg.TargetCID = targetCID
 	if err := h.services.Accounts.SetP115Config(ctx, userID, cfg); err != nil {
@@ -66,7 +66,7 @@ func (h *Handler) change115CID(ctx context.Context, userID, chatID int64, target
 		target = fmt.Sprintf("目录 %s", targetCID)
 	}
 	h.log(ctx, userID, "change115cid", targetCID)
-	return h.send(ctx, chatID, fmt.Sprintf("115 转存目标已更新为：%s", target))
+	return h.send(ctx, chatID, fmt.Sprintf("✅ 115 转存目标已更新为：%s", target))
 }
 
 func normalize115Cookie(cookie string) string {

@@ -18,18 +18,18 @@ var (
 	Err115ShareInvalid    = errors.New("115 share link is invalid or expired")
 	Err115AccessCodeWrong = errors.New("115 access code is incorrect")
 
-	ErrTMDBTokenMissing   = errors.New("TMDB token is not configured")
-	ErrTMDBSearchFailed   = errors.New("TMDB search failed")
-	ErrTMDBNoResults      = errors.New("no TMDB results found")
+	ErrTMDBTokenMissing = errors.New("TMDB token is not configured")
+	ErrTMDBSearchFailed = errors.New("TMDB search failed")
+	ErrTMDBNoResults    = errors.New("no TMDB results found")
 
-	ErrHDHiveSessionFailed  = errors.New("HDHive session negotiation failed")
+	ErrHDHiveSessionFailed    = errors.New("HDHive session negotiation failed")
 	ErrHDHiveSignatureInvalid = errors.New("HDHive signature verification failed")
-	ErrHDHiveBusinessError  = errors.New("HDHive rejected the request")
+	ErrHDHiveBusinessError    = errors.New("HDHive rejected the request")
 
-	ErrSessionExpired   = errors.New("session expired")
-	ErrCallbackExpired  = errors.New("callback button expired or belongs to another user")
-	ErrUnauthorized     = errors.New("unauthorized")
-	ErrAdminRequired    = errors.New("admin permission required")
+	ErrSessionExpired  = errors.New("session expired")
+	ErrCallbackExpired = errors.New("callback button expired or belongs to another user")
+	ErrUnauthorized    = errors.New("unauthorized")
+	ErrAdminRequired   = errors.New("admin permission required")
 
 	ErrConfigMissing = errors.New("required configuration is missing")
 )

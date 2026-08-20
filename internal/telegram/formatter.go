@@ -264,6 +264,7 @@ func FormatUnlockSuccess(r Resource) string {
 func FormatTransferSuccess(result string) string {
 	return fmt.Sprintf("✅ <b>115 转存成功！</b>\n\n📤 结果：%s", html.EscapeString(result))
 }
+
 // StatusPanel returns a rich /start message with user status.
 func StatusPanel(userID int64, isAdmin bool, authorized bool, has115 bool) string {
 	var b strings.Builder

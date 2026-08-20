@@ -75,18 +75,7 @@ type Services struct {
 	Transfer TransferService
 }
 
-type Button struct{ Text, CallbackData string }
-type Outgoing struct {
-	Text          string
-	Buttons       [][]Button
-	ReplyKeyboard  bool // 是否显示底部常驻键盘
-	RemoveKeyboard bool // 是否隐藏底部键盘
-}
-type Messenger interface {
-	Send(context.Context, int64, Outgoing) error
-	AnswerCallback(context.Context, string, string) error
-	DeleteMessage(ctx context.Context, chatID int64, messageID int) error
-}
+// Button, View, MessageRef, Messenger etc. are defined in view_types.go
 
 type Handler struct {
 	services  Services
@@ -137,18 +126,14 @@ func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text str
 	// 处理 ReplyKeyboard 按钮
 	switch text {
 	case "🔍 搜索":
-		return h.send(ctx, chatID, "🔍 请直接输入影视关键词进行搜索。
-
-例如：<code>流浪地球</code>")
+		return h.send(ctx, chatID, "🔍 请直接输入影视关键词进行搜索。\n\n例如：<code>流浪地球</code>")
 	case "🆔 我的ID":
 		return h.send(ctx, chatID, fmt.Sprintf("🆔 你的 Telegram User ID：<b><code>%d</code></b>", userID))
 	case "🍪 115配置":
 		if !h.authorized(ctx, userID) {
 			return h.send(ctx, chatID, "🔒 你尚未获得授权，请将 <code>/myid</code> 的结果发送给管理员。")
 		}
-		return h.send(ctx, chatID, "🍪 请发送 115 Cookie。
-
-使用 <code>/set115</code> 指令，或直接发送 Cookie。")
+		return h.send(ctx, chatID, "🍪 请发送 115 Cookie。\n\n使用 <code>/set115</code> 指令，或直接发送 Cookie。")
 	case "📋 115状态":
 		if !h.authorized(ctx, userID) {
 			return h.send(ctx, chatID, "🔒 你尚未获得授权。")
@@ -158,9 +143,7 @@ func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text str
 		}
 		cfg, err := h.services.Accounts.GetP115Config(ctx, userID)
 		if err != nil {
-			return h.send(ctx, chatID, "🍪 尚未配置 115 Cookie。
-
-使用 <code>/set115</code> 进行配置。")
+			return h.send(ctx, chatID, "🍪 尚未配置 115 Cookie。\n\n使用 <code>/set115</code> 进行配置。")
 		}
 		return h.send(ctx, chatID, "🍪 115 配置状态："+MaskSecret(cfg.Cookie))
 	case "❌ 取消":
@@ -175,7 +158,8 @@ func (h *Handler) HandleText(ctx context.Context, userID, chatID int64, text str
 			_, err := h.services.Accounts.GetP115Config(ctx, userID)
 			has115 = err == nil
 		}
-		return h.messenger.Send(ctx, chatID, Outgoing{Text: StatusPanel(userID, h.isAdmin(userID), authorized, has115), ReplyKeyboard: true})
+		_, err := h.messenger.Send(ctx, chatID, View{Body: StatusPanel(userID, h.isAdmin(userID), authorized, has115), Buttons: homeButtons(userID, h.isAdmin(userID))})
+		return err
 	case "/cancel":
 		h.sessions.ClearInteraction(userID)
 		return h.send(ctx, chatID, "🚫 <b>已取消</b> 当前操作。")
@@ -365,63 +349,83 @@ func (h *Handler) search(ctx context.Context, userID, chatID int64, query string
 	if len(items) == 0 {
 		return h.send(ctx, chatID, "🔍 未找到 TMDB 结果。\n\n请尝试其他关键词。")
 	}
-	out := Outgoing{Text: FormatTMDB(items, page, total)}
+	out := View{Body: FormatTMDB(items, page, total)}
 	for _, item := range items {
 		value := encodeTMDB(item)
 		token, err := h.sessions.BindCallback(userID, "tmdb", value)
 		if err != nil {
 			return err
 		}
-		out.Buttons = append(out.Buttons, []Button{{Text: FormatSearchButtonText(item), CallbackData: token}})
+		out.Buttons = append(out.Buttons, []Button{CallbackButton(FormatSearchButtonText(item), token, "")})
 	}
-	return h.messenger.Send(ctx, chatID, out)
+	_, err = h.messenger.Send(ctx, chatID, out)
+	return err
 }
 
-func (h *Handler) HandleCallback(ctx context.Context, userID, chatID int64, callbackID, token string) error {
-	cb, err := h.sessions.ResolveCallback(token, userID)
+func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) error {
+	cb, err := h.sessions.ResolveCallback(cctx.CallbackData, cctx.UserID)
 	if err != nil {
 		h.logger.Warn("callback resolution failed",
-			"user_id", userID,
-			"callback_id", callbackID,
+			"user_id", cctx.UserID,
+			"callback_id", cctx.CallbackID,
 			"error", err,
 		)
-		_ = h.messenger.AnswerCallback(ctx, callbackID, "⏰ 按钮已过期或不属于你")
+		_ = h.messenger.AnswerCallback(ctx, cctx.CallbackID, CallbackAnswer{Text: "⏰ 此页面已过期，请重新搜索", ShowAlert: true})
 		return nil
 	}
 	h.logger.Info("received callback",
-		"user_id", userID,
-		"chat_id", chatID,
+		"user_id", cctx.UserID,
+		"chat_id", cctx.ChatID,
+		"message_id", cctx.MessageID,
 		"action", cb.Action,
 		"value", cb.Value,
 	)
-	_ = h.messenger.AnswerCallback(ctx, callbackID, "⏳ 处理中…")
-	if !h.authorized(ctx, userID) {
-		return h.send(ctx, chatID, "🔒 你尚未获得授权。")
+	_ = h.messenger.AnswerCallback(ctx, cctx.CallbackID, CallbackAnswer{Text: "⏳ 处理中…"})
+	if !h.authorized(ctx, cctx.UserID) {
+		_, err := h.messenger.Send(ctx, cctx.ChatID, ViewFromText("🔒 你尚未获得授权。"))
+		return err
 	}
 	switch cb.Action {
+	case "noop":
+		return nil
 	case "tmdb":
-		return h.showResources(ctx, userID, chatID, decodeTMDB(cb.Value), 1)
+		return h.showResources(ctx, cctx.UserID, cctx.ChatID, decodeTMDB(cb.Value), 1)
 	case "resources":
 		item, page := decodeResourcePage(cb.Value)
-		return h.showResources(ctx, userID, chatID, item, page)
+		return h.showResources(ctx, cctx.UserID, cctx.ChatID, item, page)
 	case "detail":
-		return h.showDetail(ctx, userID, chatID, cb.Value)
+		return h.showDetail(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "unlock":
-		return h.confirmUnlock(ctx, userID, chatID, cb.Value)
+		return h.confirmUnlock(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "unlock_confirm":
-		return h.unlock(ctx, userID, chatID, cb.Value)
+		return h.unlock(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "unlock_reject":
-		h.sessions.DeleteCallback(token)
-		if err := h.sessions.TransitionUnlock(userID, cb.Value, session.UnlockPending, session.UnlockRejected); err != nil {
-			return h.send(ctx, chatID, "⚠️ 该解锁请求已处理，不能取消。")
+		h.sessions.DeleteCallback(cctx.CallbackData)
+		if err := h.sessions.TransitionUnlock(cctx.UserID, cb.Value, session.UnlockPending, session.UnlockRejected); err != nil {
+			_, _ = h.messenger.Send(ctx, cctx.ChatID, ViewFromText("⚠️ 该解锁请求已处理，不能取消。"))
+			return nil
 		}
-		return h.send(ctx, chatID, "🚫 已取消解锁。")
+		_, _ = h.messenger.Send(ctx, cctx.ChatID, ViewFromText("🚫 已取消解锁。"))
+		return nil
 	case "transfer":
-		return h.transfer(ctx, userID, chatID, cb.Value)
+		return h.transfer(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "new_search":
-		return h.send(ctx, chatID, "🔍 请发送新的搜索关键词")
+		_, _ = h.messenger.Send(ctx, cctx.ChatID, ViewFromText("🔍 请发送新的搜索关键词"))
+		return nil
+	case "close":
+		return h.closeCard(ctx, cctx)
 	}
 	return nil
+}
+
+// closeCard clears the keyboard and marks the message as closed.
+func (h *Handler) closeCard(ctx context.Context, cctx CallbackContext) error {
+	_, err := h.messenger.Render(ctx, MessageRef{
+		ChatID:    cctx.ChatID,
+		MessageID: cctx.MessageID,
+		HasMedia:  cctx.HasMedia,
+	}, View{Body: "已关闭 · 发送新关键词可重新搜索"})
+	return err
 }
 
 func (h *Handler) showResources(ctx context.Context, userID, chatID int64, item TMDBItem, page int) error {
@@ -450,24 +454,25 @@ func (h *Handler) showResources(ctx context.Context, userID, chatID int64, item 
 		"resources_found", len(result.Items),
 		"total_pages", result.TotalPages,
 	)
-	out := Outgoing{Text: FormatResources(result)}
+	out := View{Body: FormatResources(result)}
 	for _, r := range result.Items {
 		token, _ := h.sessions.BindCallback(userID, "detail", r.ID)
-		out.Buttons = append(out.Buttons, []Button{{Text: FormatResourceButtonText(r), CallbackData: token}})
+		out.Buttons = append(out.Buttons, []Button{CallbackButton(FormatResourceButtonText(r), token, "")})
 	}
 	var nav []Button
 	if page > 1 {
 		t, _ := h.sessions.BindCallback(userID, "resources", encodeResourcePage(item, page-1))
-		nav = append(nav, Button{Text: "⬅️ 上一页", CallbackData: t})
+		nav = append(nav, CallbackButton("⬅️ 上一页", t, ""))
 	}
 	if page < result.TotalPages {
 		t, _ := h.sessions.BindCallback(userID, "resources", encodeResourcePage(item, page+1))
-		nav = append(nav, Button{Text: "下一页 ➡️", CallbackData: t})
+		nav = append(nav, CallbackButton("下一页 ➡️", t, ""))
 	}
 	if len(nav) > 0 {
 		out.Buttons = append(out.Buttons, nav)
 	}
-	return h.messenger.Send(ctx, chatID, out)
+	_, err = h.messenger.Send(ctx, chatID, out)
+	return err
 }
 
 func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, id string) error {
@@ -475,15 +480,20 @@ func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, id strin
 	if err != nil {
 		return err
 	}
-	out := Outgoing{Text: FormatResource(r)}
+	out := View{Body: FormatResource(r)}
 	action := "unlock"
 	label := "🔓 解锁资源"
 	if r.Unlocked {
 		action, label = "transfer", "📤 转存到 115"
 	}
 	t, _ := h.sessions.BindCallback(userID, action, id)
-	out.Buttons = [][]Button{{{Text: label, CallbackData: t}}}
-	return h.messenger.Send(ctx, chatID, out)
+	out.Buttons = [][]Button{{
+		CallbackButton(label, t, "success"),
+		CallbackButton("‹ 返回资源列表", "noop", ""),
+		CallbackButton("✕ 关闭", "close", ""),
+	}}
+	_, err = h.messenger.Send(ctx, chatID, out)
+	return err
 }
 
 func (h *Handler) confirmUnlock(ctx context.Context, userID, chatID int64, id string) error {
@@ -519,7 +529,14 @@ func (h *Handler) confirmUnlock(ctx context.Context, userID, chatID int64, id st
 	}
 	y, _ := h.sessions.BindCallback(userID, "unlock_confirm", id)
 	n, _ := h.sessions.BindCallback(userID, "unlock_reject", id)
-	return h.messenger.Send(ctx, chatID, Outgoing{Text: FormatUnlockConfirm(r), Buttons: [][]Button{{{Text: "✅ 确认解锁", CallbackData: y}, {Text: "❌ 取消", CallbackData: n}}}})
+	_, err = h.messenger.Send(ctx, chatID, View{
+		Body: FormatUnlockConfirm(r),
+		Buttons: [][]Button{
+			{CallbackButton("确认解锁", y, "success")},
+			{CallbackButton("取消", n, "")},
+		},
+	})
+	return err
 }
 
 func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) error {
@@ -560,17 +577,21 @@ func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) e
 	)
 	_ = h.sessions.SetUnlockStatus(userID, id, session.UnlockSuccess)
 	h.log(ctx, userID, "unlock", id)
-	out := Outgoing{Text: FormatUnlockSuccess(r)}
+	out := View{Body: FormatUnlockSuccess(r)}
 	var row1 []Button
 	if h.services.Transfer != nil {
 		t, _ := h.sessions.BindCallback(userID, "transfer", id)
-		row1 = append(row1, Button{Text: "📤 转存到 115", CallbackData: t})
+		row1 = append(row1, CallbackButton("📥 一键转存到 115", t, "success"))
 	}
 	if len(row1) > 0 {
 		out.Buttons = append(out.Buttons, row1)
 	}
-	out.Buttons = append(out.Buttons, []Button{{Text: "🔍 新搜索", CallbackData: "new_search"}})
-	return h.messenger.Send(ctx, chatID, out)
+	out.Buttons = append(out.Buttons, []Button{
+		CallbackButton("‹ 返回资源", "noop", ""),
+		CallbackButton("🔎 新搜索", "new_search", ""),
+	})
+	_, err = h.messenger.Send(ctx, chatID, out)
+	return err
 }
 
 func (h *Handler) transfer(ctx context.Context, userID, chatID int64, id string) error {
@@ -620,7 +641,8 @@ func (h *Handler) log(ctx context.Context, id int64, action, detail string) {
 	}
 }
 func (h *Handler) send(ctx context.Context, chatID int64, text string) error {
-	return h.messenger.Send(ctx, chatID, Outgoing{Text: text})
+	_, err := h.messenger.Send(ctx, chatID, ViewFromText(text))
+	return err
 }
 func splitCommand(text string) (string, string) {
 	p := strings.SplitN(text, " ", 2)
@@ -677,4 +699,16 @@ func displayTitle(i TMDBItem) string {
 		return i.Title
 	}
 	return i.OriginalTitle
+}
+
+// homeButtons returns the Inline Keyboard for the /start home page.
+func homeButtons(userID int64, isAdmin bool) [][]Button {
+	rows := [][]Button{
+		{CallbackButton("🔎 开始搜索", "noop", "")},
+		{CallbackButton("⚙️ 115 设置", "noop", ""), CallbackButton("❓ 使用帮助", "noop", "")},
+	}
+	if isAdmin {
+		rows = append(rows, []Button{CallbackButton("🛠 管理面板", "noop", "")})
+	}
+	return rows
 }

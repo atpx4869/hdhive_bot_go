@@ -12,16 +12,25 @@ import (
 )
 
 type fakeMessenger struct {
-	sent     []Outgoing
-	answered []string
+	sent      []View
+	answered  []CallbackAnswer
+	rendered  []View
+	chatID    int64
+	messageID int
 }
 
-func (f *fakeMessenger) Send(_ context.Context, _ int64, o Outgoing) error {
-	f.sent = append(f.sent, o)
-	return nil
+func (f *fakeMessenger) Send(_ context.Context, chatID int64, view View) (MessageRef, error) {
+	f.sent = append(f.sent, view)
+	f.chatID = chatID
+	f.messageID++
+	return MessageRef{ChatID: chatID, MessageID: f.messageID}, nil
 }
-func (f *fakeMessenger) AnswerCallback(_ context.Context, _ string, text string) error {
-	f.answered = append(f.answered, text)
+func (f *fakeMessenger) Render(_ context.Context, current MessageRef, view View) (MessageRef, error) {
+	f.rendered = append(f.rendered, view)
+	return current, nil
+}
+func (f *fakeMessenger) AnswerCallback(_ context.Context, _ string, answer CallbackAnswer) error {
+	f.answered = append(f.answered, answer)
 	return nil
 }
 func (f *fakeMessenger) DeleteMessage(_ context.Context, _ int64, _ int) error {
@@ -88,7 +97,7 @@ func TestUnauthorizedKeywordRejected(t *testing.T) {
 	if err := h.HandleText(context.Background(), 1, 1, "电影", 0); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.sent) != 1 || !strings.Contains(m.sent[0].Text, "🔒 你尚未获得授权") {
+	if len(m.sent) != 1 || !strings.Contains(m.sent[0].Body, "🔒 你尚未获得授权") {
 		t.Fatalf("%+v", m.sent)
 	}
 }
@@ -108,10 +117,10 @@ func TestCallbackOwnerBinding(t *testing.T) {
 	sm := session.New(time.Minute, 10)
 	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}}, sm, m, nil, nil)
 	token, _ := sm.BindCallback(1, "detail", "r1")
-	if err := h.HandleCallback(context.Background(), 2, 2, "cb", token); err != nil {
+	if err := h.HandleCallback(context.Background(), CallbackContext{UserID: 2, ChatID: 2, MessageID: 100, CallbackID: "cb", CallbackData: token}); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.answered) == 0 || !strings.Contains(m.answered[0], "⏰ 按钮已过期或不属于你") {
+	if len(m.answered) == 0 || !strings.Contains(m.answered[0].Text, "⏰ 此页面已过期，请重新搜索") {
 		t.Fatalf("%v", m.answered)
 	}
 }
@@ -121,16 +130,16 @@ func TestPaidUnlockRequiresConfirmationAndNoDuplicate(t *testing.T) {
 	hive := &fakeHive{feeKnown: true, fee: 5}
 	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{1: {ID: 1, Authorized: true}}}, HDHive: hive}, sm, m, nil, nil)
 	token, _ := sm.BindCallback(1, "unlock", "r1")
-	if err := h.HandleCallback(context.Background(), 1, 1, "cb", token); err != nil {
+	if err := h.HandleCallback(context.Background(), CallbackContext{UserID: 1, ChatID: 1, MessageID: 100, CallbackID: "cb", CallbackData: token}); err != nil {
 		t.Fatal(err)
 	}
-	if hive.unlocks != 0 || len(m.sent) == 0 || !strings.Contains(m.sent[len(m.sent)-1].Text, "❓ 确认解锁此资源？") {
+	if hive.unlocks != 0 || len(m.sent) == 0 || !strings.Contains(m.sent[len(m.sent)-1].Body, "❓ 确认解锁此资源？") {
 		t.Fatalf("unlocks=%d sent=%+v", hive.unlocks, m.sent)
 	}
-	if err := h.HandleCallback(context.Background(), 1, 1, "cb", token); err != nil {
+	if err := h.HandleCallback(context.Background(), CallbackContext{UserID: 1, ChatID: 1, MessageID: 100, CallbackID: "cb", CallbackData: token}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(m.sent[len(m.sent)-1].Text, "⏳ 该资源已在处理，请勿重复提交。") {
+	if !strings.Contains(m.sent[len(m.sent)-1].Body, "⏳ 该资源已在处理，请勿重复提交。") {
 		t.Fatalf("%+v", m.sent)
 	}
 }

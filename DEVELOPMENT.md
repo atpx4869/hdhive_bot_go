@@ -25,7 +25,16 @@
 
 ## 2. 当前状态
 
-当前代码已完成首版功能实现，但尚未使用生产凭据进行完整端到端验收，也尚未创建 Git 初始提交。
+代码已完成首版功能实现并通过 CI。
+
+### UI 重构进度 (Telegram Native UX)
+
+| Phase | 状态 | 说明 |
+|-------|------|------|
+| **A** | ✅ 完成 | 消息渲染基础设施：View/Button/MessageRef、Render 原地编辑、CallbackContext |
+| **B** | ⏳ 待做 | 搜索与影片卡片：poster_path 映射、搜索加载、结果分页、影片卡片 |
+| **C** | ⏳ 待做 | 资源、解锁、转存：原地更新、Busy UI、URL/CopyText 按钮 |
+| **D** | ⏳ 待做 | 设置与收尾：移除 ReplyKeyboard、/settings、统一错误码 |
 
 已通过：
 

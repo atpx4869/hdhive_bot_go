@@ -318,19 +318,9 @@ func BuildTransferBusyView() View {
 // ──────────────────────── Transfer Success View ────────────────────────
 
 func BuildTransferSuccessView(result string) View {
-	var b strings.Builder
-	b.WriteString("✅ <b>已转存到 115</b>\n\n")
-	if result != "" {
-		fmt.Fprintf(&b, "结果：%s\n", html.EscapeString(result))
-	}
-
-	return View{
-		Body: b.String(),
-		Buttons: [][]Button{
-			{CallbackButton("‹ 返回资源", "", "")},
-			{CallbackButton("🔎 新搜索", "new_search", "")},
-		},
-	}
+	// 只显示简洁的成功提示，不展示转存返回的 ID，也不放任何按钮。
+	_ = result
+	return View{Body: "✅ <b>已转存到 115</b>"}
 }
 
 // ──────────────────────── Transfer Failed View ────────────────────────

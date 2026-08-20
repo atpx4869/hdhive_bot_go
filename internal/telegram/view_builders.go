@@ -393,6 +393,12 @@ func BuildTransferFailedView(err error) View {
 			{CallbackButton("‹ 返回资源", "", "")},
 			{CallbackButton("✕ 关闭", "close", "")},
 		}
+	case strings.Contains(errMsg, "过期") || strings.Contains(errMsg, "失效") || strings.Contains(errMsg, "expired"):
+		body = "❌ <b>115 转存失败</b>\n\n🔗 分享链接已失效或过期，无法转存。\n请重新搜索其他资源。"
+		buttons = [][]Button{
+			{CallbackButton("‹ 返回资源", "", "")},
+			{CallbackButton("✕ 关闭", "close", "")},
+		}
 	default:
 		body = fmt.Sprintf("❌ <b>115 转存失败</b>\n\n%s", html.EscapeString(errMsg))
 		buttons = [][]Button{

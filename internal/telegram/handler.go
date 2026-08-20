@@ -802,7 +802,7 @@ func (h *Handler) transfer(ctx context.Context, userID, chatID int64, id string)
 	if err != nil {
 		return err
 	}
-	h.logger.Info("starting 115 transfer", "user_id", userID, "resource_id", id, "title", r.Title)
+	h.logger.Info("starting 115 transfer", "user_id", userID, "resource_id", id, "title", r.Title, "share_code", maskCode(r.ShareCode), "receive_code", maskCode(r.ReceiveCode))
 
 	// Show busy UI
 	_, _ = h.renderOrCreate(ctx, chatID, BuildTransferBusyView())
@@ -857,6 +857,18 @@ func (h *Handler) send(ctx context.Context, chatID int64, text string) error {
 	_, err := h.messenger.Send(ctx, chatID, ViewFromText(text))
 	return err
 }
+
+// maskCode 脱敏分享码/提取码，仅保留首尾各 2 字符用于排查日志。
+func maskCode(s string) string {
+	if s == "" {
+		return ""
+	}
+	if len(s) <= 6 {
+		return "***"
+	}
+	return s[:2] + "***" + s[len(s)-2:]
+}
+
 func splitCommand(text string) (string, string) {
 	p := strings.SplitN(text, " ", 2)
 	cmd := strings.ToLower(strings.SplitN(p[0], "@", 2)[0])

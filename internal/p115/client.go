@@ -320,7 +320,7 @@ func classify(status int, p map[string]any) *Error {
 		kind = KindRateLimit
 	} else if errno == "4200045" || strings.Contains(msg, "已接收") || strings.Contains(msg, "重复") {
 		kind = KindAlreadyReceived
-	} else if strings.Contains(msg, "提取码") || strings.Contains(msg, "分享") && strings.Contains(msg, "失效") {
+	} else if strings.Contains(msg, "提取码") || strings.Contains(msg, "过期") || strings.Contains(msg, "失效") || strings.Contains(msg, "expired") {
 		kind = KindInvalidShare
 	}
 	return &Error{Kind: kind, StatusCode: status, Errno: errno, Message: msg}

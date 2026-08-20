@@ -412,7 +412,7 @@ func (h *Handler) search(ctx context.Context, userID, chatID int64, query string
 	items, total, err := h.services.TMDB.Search(ctx, query, page)
 	if err != nil {
 		h.logger.Error("TMDB search failed", "user_id", userID, "query", query, "error", err)
-		_, _ = h.renderOrCreate(ctx, chatID, View{Body: "❌ 搜索失败，请稍后重试。", Buttons: [][]Button{{CallbackButton("🔄 重试", "noop", "")}}})
+		_, _ = h.renderOrCreate(ctx, chatID, View{Body: "❌ 搜索失败，请稍后重试。", Buttons: [][]Button{{CallbackButton("🔄 重试", "back_search", "")}}})
 		return err
 	}
 
@@ -523,6 +523,12 @@ func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) erro
 		return h.show115Settings(ctx, cctx.UserID, cctx.ChatID)
 	case "home":
 		return h.showHome(ctx, cctx.UserID, cctx.ChatID)
+	case "set115":
+		if cctx.ChatID != cctx.UserID {
+			return h.send(ctx, cctx.ChatID, "🔒 为保护 Cookie，/set115 只能在 Bot 私聊中使用。")
+		}
+		_ = h.sessions.Set(cctx.UserID, "set115", nil)
+		return h.send(ctx, cctx.ChatID, "🍪 请发送 115 Cookie。\n\n发送后将<b>加密保存</b>；可用 <code>/unset115</code> 删除。")
 	case "transfer":
 		return h.transfer(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "new_search":
@@ -710,7 +716,7 @@ func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, value st
 	backToken, _ := h.sessions.BindCallback(userID, "resources", encodeResourceNav(item, page, category))
 
 	if r.Unlocked {
-		transferToken, _ := h.sessions.BindCallback(userID, "transfer", id)
+		transferToken, _ := h.sessions.BindCallback(userID, "transfer", value)
 		out.Buttons = [][]Button{
 			{CallbackButton("📥 转存到 115", transferToken, "success")},
 		}
@@ -809,7 +815,7 @@ func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string, i
 	// Set callback tokens
 	btnIdx := 0
 	if h.services.Transfer != nil {
-		transferToken, _ := h.sessions.BindCallback(userID, "transfer", id)
+		transferToken, _ := h.sessions.BindCallback(userID, "transfer", encodeDetail(item, page, category, id))
 		out.Buttons[btnIdx][0].CallbackData = transferToken
 		btnIdx++
 	}
@@ -826,7 +832,8 @@ func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string, i
 	return err
 }
 
-func (h *Handler) transfer(ctx context.Context, userID, chatID int64, id string) error {
+func (h *Handler) transfer(ctx context.Context, userID, chatID int64, value string) error {
+	item, page, category, id := decodeDetail(value)
 	if h.services.Transfer == nil || h.services.Accounts == nil {
 		return h.send(ctx, chatID, "⚠️ 115 转存服务未配置。")
 	}
@@ -854,10 +861,13 @@ func (h *Handler) transfer(ctx context.Context, userID, chatID int64, id string)
 				if btn.CallbackData == "" {
 					switch btn.Text {
 					case "🔄 重试转存":
-						t, _ := h.sessions.BindCallback(userID, "transfer", id)
+						t, _ := h.sessions.BindCallback(userID, "transfer", value)
+						view.Buttons[i][j].CallbackData = t
+					case "⚙️ 重新配置 115":
+						t, _ := h.sessions.BindCallback(userID, "set115", "")
 						view.Buttons[i][j].CallbackData = t
 					case "‹ 返回资源":
-						t, _ := h.sessions.BindCallback(userID, "noop", "")
+						t, _ := h.sessions.BindCallback(userID, "resources", encodeResourceNav(item, page, category))
 						view.Buttons[i][j].CallbackData = t
 					}
 				}

@@ -157,7 +157,7 @@ func BuildSearchEmptyView(query string) View {
 	return View{
 		Body: fmt.Sprintf("🔍 没有找到「%s」的结果\n\n请尝试其他关键词。", html.EscapeString(query)),
 		Buttons: [][]Button{
-			{CallbackButton("🔄 重新搜索", "noop", "")},
+			{CallbackButton("🔄 重新搜索", "back_search", "")},
 			{CallbackButton("✕ 关闭", "close", "")},
 		},
 	}
@@ -334,7 +334,7 @@ func BuildTransferFailedView(err error) View {
 	case strings.Contains(errMsg, "登录") || strings.Contains(errMsg, "cookie") || strings.Contains(errMsg, "Cookie"):
 		body = "❌ <b>115 转存失败</b>\n\n🍪 Cookie 已过期或无效。"
 		buttons = [][]Button{
-			{CallbackButton("⚙️ 重新配置 115", "noop", "")},
+			{CallbackButton("⚙️ 重新配置 115", "", "")},
 			{CallbackButton("‹ 返回资源", "", "")},
 		}
 	case strings.Contains(errMsg, "已接收") || strings.Contains(errMsg, "already"):

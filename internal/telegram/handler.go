@@ -588,17 +588,49 @@ func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, id strin
 	if err != nil {
 		return err
 	}
-	out := View{Body: FormatResource(r)}
-	action := "unlock"
-	label := "🔓 解锁资源"
+	h.logger.Info("showing resource detail", "user_id", userID, "resource_id", id, "unlocked", r.Unlocked)
+
+	// Store mediaTitle in session for later use
+	out := BuildResourceDetailView(r, "")
+
 	if r.Unlocked {
-		action, label = "transfer", "📤 转存到 115"
+		// Build buttons with real tokens
+		transferToken, _ := h.sessions.BindCallback(userID, "transfer", id)
+		backToken, _ := h.sessions.BindCallback(userID, "noop", "")
+		out.Buttons = [][]Button{
+			{CallbackButton("📥 转存到 115", transferToken, "success")},
+		}
+		// URL button (if valid)
+		if r.ShareURL != "" && isValidHTTPS(r.ShareURL) {
+			out.Buttons = append(out.Buttons, []Button{URLButton("🔗 打开资源", r.ShareURL)})
+		}
+		// Copy extract code button
+		if r.ReceiveCode != "" {
+			copyToken, _ := h.sessions.BindCallback(userID, "noop", "")
+			out.Buttons = append(out.Buttons, []Button{CopyButton("📋 复制提取码", r.ReceiveCode)})
+		}
+		out.Buttons = append(out.Buttons, []Button{
+			CallbackButton("‹ 返回资源列表", backToken, ""),
+			CallbackButton("✕ 关闭", "close", ""),
+		})
+	} else {
+		unlockToken, _ := h.sessions.BindCallback(userID, "unlock", id)
+		backToken, _ := h.sessions.BindCallback(userID, "noop", "")
+		out.Buttons = [][]Button{
+			{CallbackButton("🔓 解锁资源", unlockToken, "success")},
+			{CallbackButton("‹ 返回资源列表", backToken, ""), CallbackButton("✕ 关闭", "close", "")},
+		}
+		if r.FeeKnown {
+			feeText := "免费"
+			if r.Fee > 0 {
+				feeText = fmt.Sprintf("%d积分", r.Fee)
+			}
+			out.Body += fmt.Sprintf("\n\n该操作将消耗 %s。", feeText)
+		} else {
+			out.Body += "\n\n该操作可能消耗积分。"
+		}
 	}
-	t, _ := h.sessions.BindCallback(userID, action, id)
-	out.Buttons = [][]Button{
-		{CallbackButton(label, t, "success")},
-		{CallbackButton("‹ 返回资源列表", "noop", ""), CallbackButton("✕ 关闭", "close", "")},
-	}
+
 	_, err = h.renderOrCreate(ctx, chatID, out)
 	return err
 }
@@ -636,68 +668,66 @@ func (h *Handler) confirmUnlock(ctx context.Context, userID, chatID int64, id st
 	}
 	y, _ := h.sessions.BindCallback(userID, "unlock_confirm", id)
 	n, _ := h.sessions.BindCallback(userID, "unlock_reject", id)
-	_, err = h.messenger.Send(ctx, chatID, View{
-		Body: FormatUnlockConfirm(r),
-		Buttons: [][]Button{
-			{CallbackButton("确认解锁", y, "success")},
-			{CallbackButton("取消", n, "")},
-		},
-	})
+	view := BuildUnlockConfirmView(r)
+	view.Buttons = [][]Button{
+		{CallbackButton("确认解锁", y, "success")},
+		{CallbackButton("取消", n, "")},
+	}
+	_, err = h.renderOrCreate(ctx, chatID, view)
 	return err
 }
 
 func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) error {
 	if current, err := h.services.HDHive.Detail(ctx, userID, id); err == nil && current.Unlocked {
-		h.logger.Info("resource already unlocked, skipping",
-			"user_id", userID,
-			"resource_id", id,
-		)
 		return h.send(ctx, chatID, "✅ 该资源已经解锁，无需重复提交。")
 	}
-	h.logger.Info("starting unlock",
-		"user_id", userID,
-		"resource_id", id,
-	)
+	h.logger.Info("starting unlock", "user_id", userID, "resource_id", id)
 	if err := h.sessions.TransitionUnlock(userID, id, session.UnlockPending, session.UnlockInFlight); err != nil {
-		h.logger.Warn("unlock transition failed",
-			"user_id", userID,
-			"resource_id", id,
-			"error", err,
-		)
 		return h.send(ctx, chatID, "⏳ 该资源已在处理或已成功解锁。")
 	}
-	r, err := h.services.HDHive.Unlock(ctx, userID, id)
+
+	// Show busy UI
+	r, _ := h.services.HDHive.Detail(ctx, userID, id)
+	_, _ = h.renderOrCreate(ctx, chatID, BuildUnlockBusyView(r))
+
+	// Execute unlock
+	result, err := h.services.HDHive.Unlock(ctx, userID, id)
 	if err != nil {
-		h.logger.Error("unlock failed",
-			"user_id", userID,
-			"resource_id", id,
-			"error", err,
-		)
+		h.logger.Error("unlock failed", "user_id", userID, "resource_id", id, "error", err)
 		_ = h.sessions.SetUnlockStatus(userID, id, session.UnlockUnknown)
-		return h.send(ctx, chatID, "⚠️ 解锁结果未知，请稍后查询详情，\n\n<b>请勿重复付费。</b>")
+
+		// Build result view with tokens
+		view := BuildUnlockUnknownView(r)
+		backToken, _ := h.sessions.BindCallback(userID, "noop", "")
+		view.Buttons[0][0].CallbackData = backToken
+		_, _ = h.renderOrCreate(ctx, chatID, view)
+		return nil
 	}
-	h.logger.Info("unlock succeeded",
-		"user_id", userID,
-		"resource_id", id,
-		"resource_title", r.Title,
-		"share_code", r.ShareCode,
-	)
+
+	h.logger.Info("unlock succeeded", "user_id", userID, "resource_id", id, "title", result.Title)
 	_ = h.sessions.SetUnlockStatus(userID, id, session.UnlockSuccess)
 	h.log(ctx, userID, "unlock", id)
-	out := View{Body: FormatUnlockSuccess(r)}
-	var row1 []Button
+
+	// Build success view with tokens
+	out := BuildUnlockSuccessView(result)
+	// Set callback tokens
+	btnIdx := 0
 	if h.services.Transfer != nil {
-		t, _ := h.sessions.BindCallback(userID, "transfer", id)
-		row1 = append(row1, CallbackButton("📥 一键转存到 115", t, "success"))
+		transferToken, _ := h.sessions.BindCallback(userID, "transfer", id)
+		out.Buttons[btnIdx][0].CallbackData = transferToken
+		btnIdx++
 	}
-	if len(row1) > 0 {
-		out.Buttons = append(out.Buttons, row1)
+	// Skip URL and Copy buttons (they have real values already)
+	for i := btnIdx; i < len(out.Buttons); i++ {
+		for j, btn := range out.Buttons[i] {
+			if btn.CallbackData == "" {
+				backToken, _ := h.sessions.BindCallback(userID, "noop", "")
+				out.Buttons[i][j].CallbackData = backToken
+			}
+		}
 	}
-	out.Buttons = append(out.Buttons, []Button{
-		CallbackButton("‹ 返回资源", "noop", ""),
-		CallbackButton("🔎 新搜索", "new_search", ""),
-	})
-	_, err = h.messenger.Send(ctx, chatID, out)
+
+	_, err = h.renderOrCreate(ctx, chatID, out)
 	return err
 }
 
@@ -707,39 +737,56 @@ func (h *Handler) transfer(ctx context.Context, userID, chatID int64, id string)
 	}
 	cfg, err := h.services.Accounts.GetP115Config(ctx, userID)
 	if err != nil {
-		h.logger.Warn("115 config not found",
-			"user_id", userID,
-			"resource_id", id,
-		)
 		return h.send(ctx, chatID, "🍪 请先使用 <code>/set115</code> 配置 115 Cookie。")
 	}
 	r, err := h.services.HDHive.Detail(ctx, userID, id)
 	if err != nil {
 		return err
 	}
-	h.logger.Info("starting 115 transfer",
-		"user_id", userID,
-		"resource_id", id,
-		"resource_title", r.Title,
-		"share_code", r.ShareCode,
-		"target_cid", cfg.TargetCID,
-	)
+	h.logger.Info("starting 115 transfer", "user_id", userID, "resource_id", id, "title", r.Title)
+
+	// Show busy UI
+	_, _ = h.renderOrCreate(ctx, chatID, BuildTransferBusyView())
+
+	// Execute transfer
 	result, err := h.services.Transfer.Transfer115(ctx, userID, cfg, r)
 	if err != nil {
-		h.logger.Error("115 transfer failed",
-			"user_id", userID,
-			"resource_id", id,
-			"error", err,
-		)
-		return h.send(ctx, chatID, FormatTransferFailed(err))
+		h.logger.Error("115 transfer failed", "user_id", userID, "resource_id", id, "error", err)
+		view := BuildTransferFailedView(err)
+		// Set callback tokens for buttons
+		for i, row := range view.Buttons {
+			for j, btn := range row {
+				if btn.CallbackData == "" {
+					switch btn.Text {
+					case "🔄 重试转存":
+						t, _ := h.sessions.BindCallback(userID, "transfer", id)
+						view.Buttons[i][j].CallbackData = t
+					case "‹ 返回资源":
+						t, _ := h.sessions.BindCallback(userID, "noop", "")
+						view.Buttons[i][j].CallbackData = t
+					}
+				}
+			}
+		}
+		_, _ = h.renderOrCreate(ctx, chatID, view)
+		return nil
 	}
-	h.logger.Info("115 transfer succeeded",
-		"user_id", userID,
-		"resource_id", id,
-		"result", result,
-	)
+
+	h.logger.Info("115 transfer succeeded", "user_id", userID, "resource_id", id, "result", result)
 	h.log(ctx, userID, "transfer115", id)
-	return h.send(ctx, chatID, FormatTransferSuccess(result))
+
+	view := BuildTransferSuccessView(result)
+	// Set callback tokens
+	for i, row := range view.Buttons {
+		for j, btn := range row {
+			if btn.CallbackData == "" {
+				t, _ := h.sessions.BindCallback(userID, "noop", "")
+				view.Buttons[i][j].CallbackData = t
+			}
+		}
+	}
+	_, _ = h.renderOrCreate(ctx, chatID, view)
+	return nil
 }
 
 func (h *Handler) log(ctx context.Context, id int64, action, detail string) {

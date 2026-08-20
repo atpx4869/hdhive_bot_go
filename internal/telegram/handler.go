@@ -512,10 +512,8 @@ func (h *Handler) HandleCallback(ctx context.Context, cctx CallbackContext) erro
 	case "resources":
 		item, page, cat := decodeResourceNav(cb.Value)
 		return h.showResources(ctx, cctx.UserID, cctx.ChatID, item, page, cat)
-	case "detail":
-		return h.showDetail(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "unlock":
-		return h.confirmUnlock(ctx, cctx.UserID, cctx.ChatID, cb.Value)
+		return h.unlockResource(ctx, cctx.UserID, cctx.ChatID, cb.Value)
 	case "settings_115":
 		return h.show115Settings(ctx, cctx.UserID, cctx.ChatID)
 	case "transfer":
@@ -636,7 +634,7 @@ func (h *Handler) showResources(ctx context.Context, userID, chatID int64, item 
 	// 资源选择按钮：序号 + 状态，一行 4 个
 	var row []Button
 	for i, r := range result.Items {
-		token, _ := h.sessions.BindCallback(userID, "detail", encodeDetail(item, page, category, r.ID))
+		token, _ := h.sessions.BindCallback(userID, "unlock", encodeDetail(item, page, category, r.ID))
 		row = append(row, CallbackButton(resourceStateLabel(r, i), token, ""))
 		if len(row) == 4 {
 			out.Buttons = append(out.Buttons, row)
@@ -717,7 +715,7 @@ func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, value st
 			CallbackButton("✕ 关闭", "close", ""),
 		})
 	} else {
-		unlockToken, _ := h.sessions.BindCallback(userID, "unlock", id)
+		unlockToken, _ := h.sessions.BindCallback(userID, "unlock", value)
 		out.Buttons = [][]Button{
 			{CallbackButton("🔓 解锁资源", unlockToken, "success")},
 			{CallbackButton("‹ 返回资源列表", backToken, ""), CallbackButton("✕ 关闭", "close", "")},
@@ -737,7 +735,10 @@ func (h *Handler) showDetail(ctx context.Context, userID, chatID int64, value st
 	return err
 }
 
-func (h *Handler) confirmUnlock(ctx context.Context, userID, chatID int64, id string) error {
+// unlockResource 是资源解锁的统一入口：
+// 已解锁的资源显示详情（转存/复制链接），未解锁的直接执行解锁（不再二次确认）。
+func (h *Handler) unlockResource(ctx context.Context, userID, chatID int64, value string) error {
+	item, page, category, id := decodeDetail(value)
 	r, err := h.services.HDHive.Detail(ctx, userID, id)
 	if err != nil {
 		return err
@@ -751,7 +752,7 @@ func (h *Handler) confirmUnlock(ctx context.Context, userID, chatID int64, id st
 		"already_unlocked", r.Unlocked,
 	)
 	if r.Unlocked {
-		return h.send(ctx, chatID, "✅ 该资源已经解锁，无需重复提交。")
+		return h.showDetail(ctx, userID, chatID, value)
 	}
 	if err := h.sessions.BeginUnlock(userID, id); err != nil {
 		h.logger.Warn("unlock duplicate attempt",
@@ -761,10 +762,10 @@ func (h *Handler) confirmUnlock(ctx context.Context, userID, chatID int64, id st
 		)
 		return h.send(ctx, chatID, "⏳ 该资源已在处理，请勿重复提交。")
 	}
-	return h.unlock(ctx, userID, chatID, id)
+	return h.unlock(ctx, userID, chatID, id, item, page, category)
 }
 
-func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) error {
+func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string, item TMDBItem, page int, category ResourceCategory) error {
 	if current, err := h.services.HDHive.Detail(ctx, userID, id); err == nil && current.Unlocked {
 		return h.send(ctx, chatID, "✅ 该资源已经解锁，无需重复提交。")
 	}
@@ -785,7 +786,7 @@ func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) e
 
 		// Build result view with tokens
 		view := BuildUnlockUnknownView(r)
-		backToken, _ := h.sessions.BindCallback(userID, "noop", "")
+		backToken, _ := h.sessions.BindCallback(userID, "resources", encodeResourceNav(item, page, category))
 		view.Buttons[0][0].CallbackData = backToken
 		_, _ = h.renderOrCreate(ctx, chatID, view)
 		return nil
@@ -804,13 +805,12 @@ func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) e
 		out.Buttons[btnIdx][0].CallbackData = transferToken
 		btnIdx++
 	}
-	// Skip URL and Copy buttons (they have real values already)
-	for i := btnIdx; i < len(out.Buttons); i++ {
-		for j, btn := range out.Buttons[i] {
-			if btn.CallbackData == "" {
-				backToken, _ := h.sessions.BindCallback(userID, "noop", "")
-				out.Buttons[i][j].CallbackData = backToken
-			}
+	// 返回资源列表按钮：最后一行第一个
+	if n := len(out.Buttons); n > 0 {
+		last := n - 1
+		if len(out.Buttons[last]) > 0 {
+			backToken, _ := h.sessions.BindCallback(userID, "resources", encodeResourceNav(item, page, category))
+			out.Buttons[last][0].CallbackData = backToken
 		}
 	}
 

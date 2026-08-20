@@ -328,9 +328,7 @@ func (h *Handler) search(ctx context.Context, userID, chatID int64, query string
 		"total_pages", total,
 	)
 	if len(items) == 0 {
-		return h.send(ctx, chatID, "🔍 未找到 TMDB 结果。
-
-请尝试其他关键词。")
+		return h.send(ctx, chatID, "🔍 未找到 TMDB 结果。\n\n请尝试其他关键词。")
 	}
 	out := Outgoing{Text: FormatTMDB(items, page, total)}
 	for _, item := range items {
@@ -517,9 +515,7 @@ func (h *Handler) unlock(ctx context.Context, userID, chatID int64, id string) e
 			"error", err,
 		)
 		_ = h.sessions.SetUnlockStatus(userID, id, session.UnlockUnknown)
-		return h.send(ctx, chatID, "⚠️ 解锁结果未知，请稍后查询详情，
-
-<b>请勿重复付费。</b>")
+		return h.send(ctx, chatID, "⚠️ 解锁结果未知，请稍后查询详情，\n\n<b>请勿重复付费。</b>")
 	}
 	h.logger.Info("unlock succeeded",
 		"user_id", userID,

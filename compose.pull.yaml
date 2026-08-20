@@ -3,6 +3,7 @@
 #   docker compose -f compose.pull.yaml pull
 #   docker compose -f compose.pull.yaml up -d
 # 首次部署前先在同目录准备 config.env（从 config.example.env 复制填写）
+# 并创建 data 目录且授予容器用户(UID 10001)写权限：mkdir -p data && chown 10001:10001 data
 services:
   worker:
     image: jzrm/hdhive_bot_go:latest
@@ -10,12 +11,10 @@ services:
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
-      - hdhive-data:/data
+      - ./data:/data
     restart: unless-stopped
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-volumes:
-  hdhive-data:

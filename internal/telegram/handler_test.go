@@ -24,6 +24,9 @@ func (f *fakeMessenger) AnswerCallback(_ context.Context, _ string, text string)
 	f.answered = append(f.answered, text)
 	return nil
 }
+func (f *fakeMessenger) DeleteMessage(_ context.Context, _ int64, _ int) error {
+	return nil
+}
 
 type fakeUsers struct{ users map[int64]store.User }
 
@@ -82,10 +85,10 @@ func (f *fakeHive) Unlock(context.Context, int64, string) (Resource, error) {
 func TestUnauthorizedKeywordRejected(t *testing.T) {
 	m := &fakeMessenger{}
 	h, _ := NewHandler(Services{Users: &fakeUsers{users: map[int64]store.User{}}}, session.New(time.Minute, 10), m, nil)
-	if err := h.HandleText(context.Background(), 1, 1, "电影"); err != nil {
+	if err := h.HandleText(context.Background(), 1, 1, "电影", 0); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.sent) != 1 || !strings.Contains(m.sent[0].Text, "尚未获得授权") {
+	if len(m.sent) != 1 || !strings.Contains(m.sent[0].Text, "🔒 你尚未获得授权") {
 		t.Fatalf("%+v", m.sent)
 	}
 }
@@ -93,7 +96,7 @@ func TestAdminAuthorize(t *testing.T) {
 	m := &fakeMessenger{}
 	u := &fakeUsers{users: map[int64]store.User{}}
 	h, _ := NewHandler(Services{Users: u}, session.New(time.Minute, 10), m, []int64{9})
-	if err := h.HandleText(context.Background(), 9, 9, "/authorize 7"); err != nil {
+	if err := h.HandleText(context.Background(), 9, 9, "/authorize 7", 0); err != nil {
 		t.Fatal(err)
 	}
 	if !u.users[7].Authorized {
@@ -108,7 +111,7 @@ func TestCallbackOwnerBinding(t *testing.T) {
 	if err := h.HandleCallback(context.Background(), 2, 2, "cb", token); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.answered) == 0 || !strings.Contains(m.answered[0], "不属于你") {
+	if len(m.answered) == 0 || !strings.Contains(m.answered[0], "⏰ 按钮已过期或不属于你") {
 		t.Fatalf("%v", m.answered)
 	}
 }
@@ -121,13 +124,13 @@ func TestPaidUnlockRequiresConfirmationAndNoDuplicate(t *testing.T) {
 	if err := h.HandleCallback(context.Background(), 1, 1, "cb", token); err != nil {
 		t.Fatal(err)
 	}
-	if hive.unlocks != 0 || len(m.sent) == 0 || !strings.Contains(m.sent[len(m.sent)-1].Text, "是否确认") {
+	if hive.unlocks != 0 || len(m.sent) == 0 || !strings.Contains(m.sent[len(m.sent)-1].Text, "❓ 确认解锁此资源？") {
 		t.Fatalf("unlocks=%d sent=%+v", hive.unlocks, m.sent)
 	}
 	if err := h.HandleCallback(context.Background(), 1, 1, "cb", token); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(m.sent[len(m.sent)-1].Text, "请勿重复") {
+	if !strings.Contains(m.sent[len(m.sent)-1].Text, "⏳ 该资源已在处理，请勿重复提交。") {
 		t.Fatalf("%+v", m.sent)
 	}
 }

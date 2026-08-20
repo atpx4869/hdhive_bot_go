@@ -178,7 +178,7 @@ func resourceFromMap(m map[string]any, tmdbID int64, index int) telegram.Resourc
 		id = fmt.Sprintf("%d-%d", tmdbID, index)
 	}
 	fee, feeKnown := integer(m, "fee", "price", "cost", "points", "coin")
-	r := telegram.Resource{ID: id, UnlockSlug: id, Title: defaultString(first(m, "title", "name", "resource_name"), "未命名资源"), Quality: first(m, "quality", "resolution", "video_quality"), Size: first(m, "size", "file_size"), Description: first(m, "description", "remark", "note"), Fee: fee, FeeKnown: feeKnown, Unlocked: boolean(m, "unlocked", "is_unlocked")}
+	r := telegram.Resource{ID: id, UnlockSlug: id, Title: defaultString(first(m, "title", "name", "resource_name"), "未命名资源"), Quality: first(m, "quality", "resolution", "video_quality"), Size: first(m, "size", "file_size"), Description: first(m, "description", "remark", "note"), Fee: fee, FeeKnown: feeKnown, Unlocked: boolean(m, "unlocked", "is_unlocked"), PanType: first(m, "pan_type", "website", "storage"), Source: first(m, "source", "channel", "origin")}
 	return r
 }
 func first(m map[string]any, keys ...string) string {

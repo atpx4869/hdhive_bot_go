@@ -16,7 +16,7 @@ type BotMessenger struct {
 }
 
 func (m BotMessenger) Send(ctx context.Context, chatID int64, out Outgoing) error {
-	params := &gbot.SendMessageParams{ChatID: chatID, Text: out.Text}
+	params := &gbot.SendMessageParams{ChatID: chatID, Text: out.Text, ParseMode: "HTML"}
 	if len(out.Buttons) > 0 {
 		rows := make([][]models.InlineKeyboardButton, 0, len(out.Buttons))
 		for _, row := range out.Buttons {
@@ -37,11 +37,16 @@ func (m BotMessenger) AnswerCallback(ctx context.Context, id, text string) error
 	return err
 }
 
+func (m BotMessenger) DeleteMessage(ctx context.Context, chatID int64, messageID int) error {
+	_, err := m.Bot.DeleteMessage(ctx, &gbot.DeleteMessageParams{ChatID: chatID, MessageID: messageID})
+	return err
+}
+
 // UpdateHandler returns a go-telegram/bot default handler.
 func (h *Handler) UpdateHandler() gbot.HandlerFunc {
 	return func(ctx context.Context, _ *gbot.Bot, update *models.Update) {
 		if update.Message != nil && update.Message.From != nil {
-			if err := h.HandleText(ctx, update.Message.From.ID, update.Message.Chat.ID, update.Message.Text); err != nil {
+			if err := h.HandleText(ctx, update.Message.From.ID, update.Message.Chat.ID, update.Message.Text, update.Message.ID); err != nil {
 				h.reportError(ctx, update.Message.Chat.ID, err)
 			}
 			return
@@ -62,5 +67,5 @@ func (h *Handler) reportError(ctx context.Context, chatID int64, err error) {
 	if messenger, ok := h.messenger.(BotMessenger); ok && messenger.Logger != nil {
 		messenger.Logger.ErrorContext(ctx, "telegram handler failed", "error_type", fmt.Sprintf("%T", err))
 	}
-	_ = h.messenger.Send(ctx, chatID, Outgoing{Text: "操作暂时失败，请稍后重试。"})
+	_ = h.messenger.Send(ctx, chatID, Outgoing{Text: "❌ 操作暂时失败，请稍后重试。"})
 }

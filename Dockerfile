@@ -11,4 +11,10 @@ COPY --from=builder /out/worker /usr/local/bin/worker
 COPY --from=builder /out/migrate /usr/local/bin/migrate
 USER app
 WORKDIR /data
+
+# 日志配置
+ENV LOG_LEVEL=info
+# 设置时区用于日志时间戳
+ENV TZ=Asia/Shanghai
+
 ENTRYPOINT ["/usr/local/bin/worker"]

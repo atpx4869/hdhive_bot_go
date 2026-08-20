@@ -28,30 +28,45 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	logger.Info("initializing worker",
+		"db_dsn", cfg.DatabaseDSN,
+		"hdhive_base_url", cfg.HDHiveBaseURL,
+		"proxy", cfg.HTTPProxyURL,
+		"http_timeout", cfg.HTTPTimeout,
+		"session_ttl", cfg.SessionTTL,
+		"session_capacity", cfg.SessionCapacity,
+		"admin_count", len(cfg.AdminUserIDs),
+	)
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	var pollingErr error
 	var pollingErrMu sync.Mutex
+	logger.Info("initializing encryption")
 	crypt, err := appcrypto.New(cfg.EncryptionKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("init crypto: %w", err)
 	}
+	logger.Info("opening database")
 	db, err := store.Open(ctx, cfg.DatabaseDSN, crypt)
 	if err != nil {
-		return err
+		return fmt.Errorf("open database: %w", err)
 	}
 	defer db.Close()
+	logger.Info("database opened successfully")
+	logger.Info("creating HTTP client")
 	httpClient, err := newHTTPClient(cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("create HTTP client: %w", err)
 	}
+	logger.Info("initializing TMDB client")
 	tmdbClient, err := tmdb.New(cfg.TMDBToken, httpClient)
 	if err != nil {
-		return err
+		return fmt.Errorf("init TMDB: %w", err)
 	}
+	logger.Info("initializing HDHive client")
 	hdhiveClient, err := hdhive.New(cfg.HDHiveBaseURL, cfg.HDHiveSecret, cfg.HDHiveUserID, cfg.HDHiveUserKey, httpClient)
 	if err != nil {
-		return err
+		return fmt.Errorf("init HDHive: %w", err)
 	}
 	var handler *telegram.Handler
 	botHTTPClient, err := newTelegramHTTPClient(cfg)
@@ -80,7 +95,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("create telegram bot: %w", err)
 	}
 	hdhiveAdapter := NewHDHiveAdapter(hdhiveClient, db)
-	handler, err = telegram.NewHandler(telegram.Services{Users: db, Accounts: db, Logs: db, TMDB: TMDBAdapter{Client: tmdbClient}, HDHive: hdhiveAdapter, Transfer: TransferAdapter{HTTP: httpClient, Logger: logger, HDHive: hdhiveAdapter}}, session.New(cfg.SessionTTL, cfg.SessionCapacity), telegram.BotMessenger{Bot: bot, Logger: logger}, cfg.AdminUserIDs)
+	handler, err = telegram.NewHandler(telegram.Services{Users: db, Accounts: db, Logs: db, TMDB: TMDBAdapter{Client: tmdbClient}, HDHive: hdhiveAdapter, Transfer: TransferAdapter{HTTP: httpClient, Logger: logger, HDHive: hdhiveAdapter}}, session.New(cfg.SessionTTL, cfg.SessionCapacity), telegram.BotMessenger{Bot: bot, Logger: logger}, cfg.AdminUserIDs, logger)
 	if err != nil {
 		return err
 	}

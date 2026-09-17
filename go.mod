@@ -3,7 +3,7 @@ module github.com/atpx4869/hdhive_bot_go
 go 1.25.0
 
 require (
-	github.com/go-telegram/bot v1.23.0
+	github.com/go-telegram/bot v1.27.0
 	modernc.org/sqlite v1.56.0
 )
 
